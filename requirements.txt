@@ -1,2 +1,4 @@
-aiogram==3.18.0
-python-dotenv==1.0.0
+flask
+telethon
+requests
+python-telegram-bot
