@@ -67,6 +67,7 @@ h2{color:#e94560;margin-bottom:15px;text-align:center}
 textarea{width:100%;height:200px;background:#16213e;color:#fff;border:1px solid #e94560;border-radius:10px;padding:10px;font-size:14px;resize:vertical;margin-bottom:10px}
 input{width:100%;background:#16213e;color:#fff;border:1px solid #e94560;border-radius:10px;padding:10px;font-size:14px;margin-bottom:10px}
 button{background:#e94560;color:#fff;border:none;padding:12px;border-radius:10px;font-size:16px;cursor:pointer;margin:5px 0;width:100%}
+button.danger{background:#333}
 .status{text-align:center;color:#aaa;margin:10px 0;font-size:14px}
 .bot-list{background:#16213e;border-radius:10px;padding:10px;margin:10px 0}
 .bot-item{color:#e94560;padding:5px;border-bottom:1px solid #333}
@@ -78,6 +79,7 @@ button{background:#e94560;color:#fff;border:none;padding:12px;border-radius:10px
 <input id="token" placeholder="Bot token from @BotFather">
 <button onclick="deployBot()">Deploy Bot</button>
 <button onclick="generateAI()">Generate with AI</button>
+<button onclick="stopAllBots()" class="danger">Stop All Bots</button>
 <div class="bot-list" id="botList">Loading...</div>
 <script>
 const tg = window.Telegram.WebApp;
@@ -118,6 +120,18 @@ async function generateAI(){
                 setStatus('Generated! Click Deploy.');
             }
         }catch(e){setStatus('Server: '+text.substring(0,100));}
+    }catch(e){setStatus('Error: '+e.message);}
+}
+
+async function stopAllBots(){
+    if(!confirm('Stop all deployed bots?')) return;
+    setStatus('Stopping all...');
+    try{
+        var resp=await fetch('/api/stop_all',{method:'POST'});
+        var text=await resp.text();
+        var data=JSON.parse(text);
+        setStatus('Stopped: '+data.stopped+' bots');
+        loadBots();
     }catch(e){setStatus('Error: '+e.message);}
 }
 
@@ -178,44 +192,32 @@ def mini_app():
 @app.route('/api/deploy', methods=['POST'])
 def api_deploy():
     data = request.get_json(silent=True)
-    if not data:
-        return jsonify({'error': 'Invalid JSON'})
+    if not data: return jsonify({'error': 'Invalid JSON'})
     
     code = data.get('code', '')
     token = data.get('token', '')
     
-    if not code or not token:
-        return jsonify({'error': 'Code and token required'})
+    if not code or not token: return jsonify({'error': 'Code and token required'})
     
-    filename, error = deploy_bot(code, token)
-    if error:
-        return jsonify({'error': error})
+    code = re.sub(r'BOT_TOKEN\s*=\s*["\'][^"\']+["\']', f'BOT_TOKEN = "{token}"', code)
+    bot_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=6))
+    filename = f"{BOTS_DIR}/bot_{bot_id}.py"
     
-    try:
-        async def get_bot_info():
-            c = TelegramClient('tmp', 6, "eb06d4abfb49dc3eeb1aeb98ae0f581e")
-            await c.start(bot_token=token)
-            me = await c.get_me()
-            await c.disconnect()
-            return getattr(me, 'username', 'unknown')
-        username = asyncio.new_event_loop().run_until_complete(get_bot_info())
-    except:
-        username = 'unknown'
+    with open(filename, 'w', encoding='utf-8') as f: f.write(code)
+    subprocess.Popen(['python', filename], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    deployed_bots_list[filename] = {'username': username, 'file': filename}
-    return jsonify({'success': True, 'username': username, 'file': filename})
+    deployed_bots_list[filename] = {'username': 'bot_' + bot_id, 'file': filename}
+    return jsonify({'success': True, 'username': 'bot_' + bot_id, 'file': filename})
 
 @app.route('/api/generate', methods=['POST'])
 def api_generate():
     data = request.get_json(silent=True)
-    if not data:
-        return jsonify({'error': 'Invalid JSON'})
+    if not data: return jsonify({'error': 'Invalid JSON'})
     
     desc = data.get('desc', '')
     token = data.get('token', '')
     
-    if not desc:
-        return jsonify({'error': 'Description required'})
+    if not desc: return jsonify({'error': 'Description required'})
     
     code = generate_bot_code(desc, token if token else None)
     return jsonify({'code': code})
@@ -224,6 +226,16 @@ def api_generate():
 def api_bots():
     bots = [{'username': v.get('username','?'), 'file': v.get('file','?')} for v in deployed_bots_list.values()]
     return jsonify({'bots': bots})
+
+@app.route('/api/stop_all', methods=['POST'])
+def api_stop_all():
+    count = 0
+    for filename in os.listdir(BOTS_DIR):
+        if filename.endswith('.py'):
+            os.remove(os.path.join(BOTS_DIR, filename))
+            count += 1
+    deployed_bots_list.clear()
+    return jsonify({'success': True, 'stopped': count})
 
 @app.route('/collect/<lid>', methods=['POST'])
 def coll(lid):
@@ -283,35 +295,52 @@ Device: {v.get('ua','?')[:150]}
 def generate_bot_code(description: str, token: str = None) -> str:
     token_line = f'BOT_TOKEN = "{token}"' if token else 'BOT_TOKEN = "REPLACE_WITH_YOUR_TOKEN"'
     
-    prompt = f"""You are an expert Python developer for Telegram bots (Telethon).
-Write COMPLETE working bot code.
+    prompt = f"""Write a complete working Python Telegram bot using Telethon library.
 
 CRITICAL RULES:
-1. ONLY import: from telethon import TelegramClient, events
+1. ONLY use: from telethon import TelegramClient, events
 2. api_id = 6, api_hash = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
 3. {token_line}
-4. Add /start handler
-5. Output ONLY Python code
-6. Code MUST be fully functional
+4. Add /start command
+5. NO markdown blocks, NO ```python, NO explanations
+6. Output ONLY raw Python code ready to run
 
 Bot description: {description}
 
-Write complete code:"""
+Complete Python code:"""
     
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {GROQ_API_KEY}"}
-    payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2,
-        "max_tokens": 6000,
-        "top_p": 0.95,
-        "frequency_penalty": 0.1,
-    }
     
+    # DeepSeek (best for code)
     try:
+        payload = {
+            "model": "deepseek-r1-distill-llama-70b",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": 6000,
+            "top_p": 0.95,
+        }
         resp = requests.post(API_URL, json=payload, headers=headers, timeout=60)
         code = resp.json()['choices'][0]['message']['content']
-        return code.replace("```python", "").replace("```", "").strip()
+        # Clean DeepSeek output
+        code = re.sub(r'```\w*\n?', '', code)
+        code = re.sub(r'^.*?from telethon', 'from telethon', code, flags=re.DOTALL)
+        if 'from telethon' in code: return code.strip()
+    except: pass
+    
+    # Llama 3.3 fallback
+    try:
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": 6000,
+            "top_p": 0.95,
+        }
+        resp = requests.post(API_URL, json=payload, headers=headers, timeout=60)
+        code = resp.json()['choices'][0]['message']['content']
+        code = code.replace("```python", "").replace("```", "").strip()
+        return code
     except Exception as e:
         return f"# Generation error: {e}"
 
@@ -321,20 +350,6 @@ def has_token(code: str) -> bool:
 def extract_token(code: str) -> str:
     match = re.search(r'BOT_TOKEN\s*=\s*["\']([^"\']+)["\']', code)
     return match.group(1) if match else None
-
-def deploy_bot(code: str, token: str = None) -> tuple:
-    if not token:
-        token = extract_token(code)
-    
-    if not token or token in ["REPLACE_WITH_YOUR_TOKEN", "ВСТАВЬ_СВОЙ_ТОКЕН"]:
-        return None, "Where is the token?"
-    
-    code = re.sub(r'BOT_TOKEN\s*=\s*["\'][^"\']+["\']', f'BOT_TOKEN = "{token}"', code)
-    bot_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=6))
-    filename = f"{BOTS_DIR}/bot_{bot_id}.py"
-    with open(filename, 'w', encoding='utf-8') as f: f.write(code)
-    subprocess.Popen(['python', filename], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return filename, None
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
@@ -378,21 +393,18 @@ async def handle(event):
     
     if state['action'] == 'wait_code':
         code = None
-        
         if event.file and event.file.name and event.file.name.endswith('.py'):
             temp_path = os.path.join(tempfile.gettempdir(), event.file.name)
             await event.download_media(temp_path)
-            with open(temp_path, 'r', encoding='utf-8', errors='ignore') as f:
-                code = f.read()
+            with open(temp_path, 'r', encoding='utf-8', errors='ignore') as f: code = f.read()
             os.remove(temp_path)
-        
         elif text and len(text) > 50 and ('import' in text.lower() or 'def ' in text.lower() or 'bot_token' in text.lower()):
             code = text
         
         if code:
             if has_token(code):
                 msg = await event.reply("Token found. Deploying...")
-                filename, error = deploy_bot(code)
+                filename, error = deploy_bot(code, extract_token(code))
                 if error: await msg.edit(error)
                 else:
                     del user_states[user_id]
@@ -421,7 +433,6 @@ async def handle(event):
     if state['action'] == 'wait_desc_with_token':
         token = None
         desc = text
-        
         for line in text.split('\n'):
             if line.upper().startswith('TOKEN:'): token = line.split(':', 1)[1].strip()
             elif line.upper().startswith('DESC:'): desc = line.split(':', 1)[1].strip()
@@ -437,6 +448,17 @@ async def handle(event):
         else:
             await event.reply("Invalid token. Format:\nTOKEN: 123456:ABCdef\nDESC: description")
         return
+
+def deploy_bot(code: str, token: str) -> tuple:
+    if not token or token in ["REPLACE_WITH_YOUR_TOKEN", "ВСТАВЬ_СВОЙ_ТОКЕН"]:
+        return None, "Where is the token?"
+    code = re.sub(r'BOT_TOKEN\s*=\s*["\'][^"\']+["\']', f'BOT_TOKEN = "{token}"', code)
+    bot_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=6))
+    filename = f"{BOTS_DIR}/bot_{bot_id}.py"
+    with open(filename, 'w', encoding='utf-8') as f: f.write(code)
+    subprocess.Popen(['python', filename], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deployed_bots_list[filename] = {'username': 'bot_' + bot_id, 'file': filename}
+    return filename, None
 
 async def main():
     global loop
