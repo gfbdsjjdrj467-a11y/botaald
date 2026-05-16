@@ -139,31 +139,30 @@ Device: {v.get('ua','?')[:150]}
     except Exception as e:
         print(f"Notify error: {e}")
 
-# ================= ИИ С ГЛУБОКИМ МЫШЛЕНИЕМ =================
-def generate_bot_code(description: str) -> str:
-    prompt = f"""You are an expert Python developer specializing in Telegram bots using Telethon library.
-Write a COMPLETE, working bot code based on the description below.
-Take your time to think through the logic carefully before writing code.
-Make sure all handlers are correct and the bot will work without errors.
+# ================= ИИ ГЕНЕРАТОР (СРАЗУ С ТОКЕНОМ) =================
+def generate_bot_code(description: str, token: str = None) -> str:
+    token_line = f'BOT_TOKEN = "{token}"' if token else 'BOT_TOKEN = "REPLACE_WITH_YOUR_TOKEN"'
+    
+    prompt = f"""You are an expert Python developer for Telegram bots (Telethon).
+Write COMPLETE working bot code. Think carefully before writing.
 
 CRITICAL RULES:
-1. Use ONLY: from telethon import TelegramClient, events
+1. ONLY import: from telethon import TelegramClient, events
 2. api_id = 6, api_hash = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
-3. Token must be: BOT_TOKEN = "REPLACE_WITH_YOUR_TOKEN"
-4. Add /start command with function description
+3. {token_line}
+4. Add /start handler with function description
 5. Output ONLY Python code, no explanations
-6. Code must be fully functional
-7. Do NOT use emoji or special characters in comments
+6. Code MUST be fully functional
+7. NO emoji in comments
 
 Bot description: {description}
 
 Think step by step:
 1. What handlers are needed?
-2. What imports are required?
-3. What is the main logic?
-4. Are there any edge cases?
+2. What is the main logic?
+3. Are there any edge cases?
 
-Now write the complete code:"""
+Write complete code:"""
     
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {GROQ_API_KEY}"}
     payload = {
@@ -183,22 +182,35 @@ Now write the complete code:"""
     except Exception as e:
         return f"# Generation error: {e}"
 
-def deploy_bot(code: str, token: str) -> str:
-    code = code.replace("REPLACE_WITH_YOUR_TOKEN", token)
-    code = code.replace("ВСТАВЬ_СВОЙ_ТОКЕН", token)
+def has_token(code: str) -> bool:
+    return bool(re.search(r'BOT_TOKEN\s*=\s*["\'](?!REPLACE_WITH_YOUR_TOKEN|ВСТАВЬ_СВОЙ_ТОКЕН)[^"\']+["\']', code))
+
+def extract_token(code: str) -> str:
+    match = re.search(r'BOT_TOKEN\s*=\s*["\']([^"\']+)["\']', code)
+    return match.group(1) if match else None
+
+def deploy_bot(code: str, token: str = None) -> tuple:
+    if not token:
+        token = extract_token(code)
+    
+    if not token or token in ["REPLACE_WITH_YOUR_TOKEN", "ВСТАВЬ_СВОЙ_ТОКЕН"]:
+        return None, "Where is the token? Add BOT_TOKEN to your code first!"
+    
+    code = re.sub(r'BOT_TOKEN\s*=\s*["\'][^"\']+["\']', f'BOT_TOKEN = "{token}"', code)
     bot_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=6))
     filename = f"{BOTS_DIR}/bot_{bot_id}.py"
     with open(filename, 'w', encoding='utf-8') as f: f.write(code)
     subprocess.Popen(['python', filename], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return f"bot_{bot_id}.py"
+    return filename, None
 
 # ================= БОТ =================
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
     buttons = [
         [Button.inline("Create logger link", "logger")],
-        [Button.inline("Upload .py file (deploy bot)", "upload")],
-        [Button.inline("AI generate bot", "ai_generate")],
+        [Button.inline("Upload .py file (deploy)", "upload")],
+        [Button.inline("AI generate bot (with token)", "ai_with_token")],
+        [Button.inline("AI generate bot (no token)", "ai_no_token")],
     ]
     await event.reply("ALL-IN-ONE BOT\n\nLogger | Deploy | AI Generator\n\nChoose action:", buttons=buttons)
 
@@ -214,11 +226,15 @@ async def callback(event):
     
     elif data == "upload":
         user_states[user_id] = {'action': 'wait_code'}
-        await event.edit("Send .py file with bot code")
+        await event.edit("Send .py file with bot code.\nIf token is in code - deploy instantly.\nIf no token - I will ask for it.")
     
-    elif data == "ai_generate":
+    elif data == "ai_with_token":
+        user_states[user_id] = {'action': 'wait_desc_with_token'}
+        await event.edit("Format:\nTOKEN: your_token_here\nDESC: bot description\n\nExample:\nTOKEN: 123456:ABCdef\nDESC: bot for spam in chat")
+    
+    elif data == "ai_no_token":
         user_states[user_id] = {'action': 'wait_description'}
-        await event.edit("Describe your bot:\nExample: 'bot for spam in chat'")
+        await event.edit("Describe your bot:\nExample: 'bot for searching in databases'")
 
 @bot.on(events.NewMessage(incoming=True))
 async def handle(event):
@@ -229,27 +245,66 @@ async def handle(event):
     if user_id not in user_states: return
     state = user_states[user_id]
     
+    # === ЗАГРУЗКА .py ФАЙЛА ===
     if state['action'] == 'wait_code' and event.file and event.file.name and event.file.name.endswith('.py'):
         temp_path = os.path.join(tempfile.gettempdir(), event.file.name)
         await event.download_media(temp_path)
         with open(temp_path, 'r', encoding='utf-8', errors='ignore') as f: code = f.read()
-        user_states[user_id]['code'] = code
-        user_states[user_id]['action'] = 'wait_token'
-        await event.reply("Code received! Send bot token from @BotFather:")
         os.remove(temp_path)
+        
+        if has_token(code):
+            msg = await event.reply("Token found in code. Deploying...")
+            filename, error = deploy_bot(code)
+            if error: await msg.edit(error)
+            else:
+                del user_states[user_id]
+                await msg.edit(f"Bot deployed! File: `{filename}`")
+        else:
+            user_states[user_id]['code'] = code
+            user_states[user_id]['action'] = 'wait_token'
+            await event.reply("No token found in code. Send bot token from @BotFather:")
     
+    # === ОЖИДАНИЕ ТОКЕНА ===
     elif state['action'] == 'wait_token' and ':' in text and len(text) > 30:
         code = state['code']
-        msg = await event.reply("Deploying bot...")
-        try:
-            filename = deploy_bot(code, text)
+        msg = await event.reply("Deploying...")
+        filename, error = deploy_bot(code, text)
+        if error: await msg.edit(error)
+        else:
             del user_states[user_id]
             await msg.edit(f"Bot deployed! File: `{filename}`")
-        except Exception as e:
-            await msg.edit(f"Error: {e}")
     
+    # === ИИ С ТОКЕНОМ ===
+    elif state['action'] == 'wait_desc_with_token' and text:
+        token = None
+        desc = text
+        
+        if 'TOKEN:' in text.upper():
+            parts = text.split('\n')
+            for part in parts:
+                if part.upper().startswith('TOKEN:'):
+                    token = part.split(':', 1)[1].strip()
+                elif part.upper().startswith('DESC:'):
+                    desc = part.split(':', 1)[1].strip()
+        
+        if token and ':' in token and len(token) > 30:
+            msg = await event.reply("AI generating code with your token...")
+            code = generate_bot_code(desc, token)
+            gen_path = os.path.join(tempfile.gettempdir(), f"bot_{random.randint(1000,9999)}.py")
+            with open(gen_path, 'w', encoding='utf-8') as f: f.write(code)
+            await msg.edit("Code generated. Deploying...")
+            filename, error = deploy_bot(code, token)
+            if error: await msg.edit(error)
+            else:
+                del user_states[user_id]
+                await msg.edit(f"Bot deployed! File: `{filename}`")
+            os.remove(gen_path)
+        else:
+            await event.reply("Invalid token format. Use:\nTOKEN: 123456:ABCdef\nDESC: bot description")
+    
+    # === ИИ БЕЗ ТОКЕНА ===
     elif state['action'] == 'wait_description' and text:
-        msg = await event.reply("AI is generating code...")
+        msg = await event.reply("AI generating code...")
         code = generate_bot_code(text)
         gen_path = os.path.join(tempfile.gettempdir(), f"bot_{random.randint(1000,9999)}.py")
         with open(gen_path, 'w', encoding='utf-8') as f: f.write(code)
