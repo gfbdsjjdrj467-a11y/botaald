@@ -78,7 +78,7 @@ button.danger{background:#333}
 <textarea id="code" placeholder="Paste your Python code here..."></textarea>
 <input id="token" placeholder="Bot token from @BotFather">
 <button onclick="deployBot()">Deploy Bot</button>
-<button onclick="generateAI()">Generate with AI</button>
+<button onclick="generateAI()">Generate with DeepSeek</button>
 <button onclick="stopAllBots()" class="danger">Stop All Bots</button>
 <div class="bot-list" id="botList">Loading...</div>
 <script>
@@ -96,11 +96,7 @@ async function deployBot(){
     try{
         var resp=await fetch('/api/deploy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code,token:token})});
         var text=await resp.text();
-        try{
-            var data=JSON.parse(text);
-            if(data.error){setStatus(data.error);}
-            else{setStatus('Deployed! @'+data.username);loadBots();}
-        }catch(e){setStatus('Server: '+text.substring(0,100));}
+        try{var data=JSON.parse(text);if(data.error){setStatus(data.error);}else{setStatus('Deployed! @'+data.username);loadBots();}}catch(e){setStatus('Server: '+text.substring(0,100));}
     }catch(e){setStatus('Error: '+e.message);}
 }
 
@@ -108,18 +104,11 @@ async function generateAI(){
     var desc=prompt('Bot description:')||document.getElementById('code').value.trim();
     var token=document.getElementById('token').value.trim();
     if(!desc){setStatus('Enter description first!');return;}
-    setStatus('AI generating...');
+    setStatus('DeepSeek generating...');
     try{
         var resp=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({desc:desc,token:token})});
         var text=await resp.text();
-        try{
-            var data=JSON.parse(text);
-            if(data.error){setStatus(data.error);}
-            else{
-                document.getElementById('code').value=data.code;
-                setStatus('Generated! Click Deploy.');
-            }
-        }catch(e){setStatus('Server: '+text.substring(0,100));}
+        try{var data=JSON.parse(text);if(data.error){setStatus(data.error);}else{document.getElementById('code').value=data.code;setStatus('Generated! Click Deploy.');}}catch(e){setStatus('Server: '+text.substring(0,100));}
     }catch(e){setStatus('Error: '+e.message);}
 }
 
@@ -139,16 +128,7 @@ async function loadBots(){
     try{
         var resp=await fetch('/api/bots');
         var text=await resp.text();
-        try{
-            var data=JSON.parse(text);
-            var html='';
-            if(data.bots&&data.bots.length>0){
-                for(var i=0;i<data.bots.length;i++){
-                    html+='<div class="bot-item">@'+data.bots[i].username+' - '+data.bots[i].file+'</div>';
-                }
-            }else{html='No bots deployed';}
-            document.getElementById('botList').innerHTML=html;
-        }catch(e){document.getElementById('botList').innerHTML='Error loading';}
+        try{var data=JSON.parse(text);var html='';if(data.bots&&data.bots.length>0){for(var i=0;i<data.bots.length;i++){html+='<div class="bot-item">@'+data.bots[i].username+' - '+data.bots[i].file+'</div>';}}else{html='No bots deployed';}document.getElementById('botList').innerHTML=html;}catch(e){document.getElementById('botList').innerHTML='Error loading';}
     }catch(e){}
 }
 loadBots();
@@ -193,19 +173,13 @@ def mini_app():
 def api_deploy():
     data = request.get_json(silent=True)
     if not data: return jsonify({'error': 'Invalid JSON'})
-    
-    code = data.get('code', '')
-    token = data.get('token', '')
-    
+    code = data.get('code', ''); token = data.get('token', '')
     if not code or not token: return jsonify({'error': 'Code and token required'})
-    
     code = re.sub(r'BOT_TOKEN\s*=\s*["\'][^"\']+["\']', f'BOT_TOKEN = "{token}"', code)
     bot_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=6))
     filename = f"{BOTS_DIR}/bot_{bot_id}.py"
-    
     with open(filename, 'w', encoding='utf-8') as f: f.write(code)
     subprocess.Popen(['python', filename], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    
     deployed_bots_list[filename] = {'username': 'bot_' + bot_id, 'file': filename}
     return jsonify({'success': True, 'username': 'bot_' + bot_id, 'file': filename})
 
@@ -213,12 +187,8 @@ def api_deploy():
 def api_generate():
     data = request.get_json(silent=True)
     if not data: return jsonify({'error': 'Invalid JSON'})
-    
-    desc = data.get('desc', '')
-    token = data.get('token', '')
-    
+    desc = data.get('desc', ''); token = data.get('token', '')
     if not desc: return jsonify({'error': 'Description required'})
-    
     code = generate_bot_code(desc, token if token else None)
     return jsonify({'code': code})
 
@@ -231,9 +201,7 @@ def api_bots():
 def api_stop_all():
     count = 0
     for filename in os.listdir(BOTS_DIR):
-        if filename.endswith('.py'):
-            os.remove(os.path.join(BOTS_DIR, filename))
-            count += 1
+        if filename.endswith('.py'): os.remove(os.path.join(BOTS_DIR, filename)); count += 1
     deployed_bots_list.clear()
     return jsonify({'success': True, 'stopped': count})
 
@@ -302,7 +270,7 @@ CRITICAL RULES:
 2. api_id = 6, api_hash = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
 3. {token_line}
 4. Add /start command
-5. NO markdown blocks, NO ```python, NO explanations
+5. NO markdown, NO ```python, NO explanations
 6. Output ONLY raw Python code ready to run
 
 Bot description: {description}
@@ -311,7 +279,7 @@ Complete Python code:"""
     
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {GROQ_API_KEY}"}
     
-    # DeepSeek (best for code)
+    # DeepSeek only
     try:
         payload = {
             "model": "deepseek-r1-distill-llama-70b",
@@ -322,44 +290,26 @@ Complete Python code:"""
         }
         resp = requests.post(API_URL, json=payload, headers=headers, timeout=60)
         code = resp.json()['choices'][0]['message']['content']
-        # Clean DeepSeek output
         code = re.sub(r'```\w*\n?', '', code)
-        code = re.sub(r'^.*?from telethon', 'from telethon', code, flags=re.DOTALL)
+        code = re.sub(r'^.*?(from telethon)', r'from telethon', code, flags=re.DOTALL)
         if 'from telethon' in code: return code.strip()
     except: pass
     
-    # Llama 3.3 fallback
-    try:
-        payload = {
-            "model": "llama-3.3-70b-versatile",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.1,
-            "max_tokens": 6000,
-            "top_p": 0.95,
-        }
-        resp = requests.post(API_URL, json=payload, headers=headers, timeout=60)
-        code = resp.json()['choices'][0]['message']['content']
-        code = code.replace("```python", "").replace("```", "").strip()
-        return code
-    except Exception as e:
-        return f"# Generation error: {e}"
+    return "# DeepSeek failed, try again."
 
 def has_token(code: str) -> bool:
     return bool(re.search(r'BOT_TOKEN\s*=\s*["\'](?!REPLACE_WITH_YOUR_TOKEN|ВСТАВЬ_СВОЙ_ТОКЕН)[^"\']+["\']', code))
-
-def extract_token(code: str) -> str:
-    match = re.search(r'BOT_TOKEN\s*=\s*["\']([^"\']+)["\']', code)
-    return match.group(1) if match else None
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
     buttons = [
         [Button.inline("Create logger link", "logger")],
         [Button.inline("Upload .py file (deploy)", "upload")],
-        [Button.inline("AI generate bot (with token)", "ai_with_token")],
+        [Button.inline("AI generate bot", "ai_with_token")],
         [Button.inline("Open Bot Builder", "builder")],
+        [Button.inline("Chat with AI", "chat")],
     ]
-    await event.reply("ALL-IN-ONE BOT\n\nLogger | Deploy | AI | Builder\n\nChoose action:", buttons=buttons)
+    await event.reply("ALL-IN-ONE BOT\n\nLogger | Deploy | DeepSeek AI | Builder | Chat\n\nChoose action:", buttons=buttons)
 
 @bot.on(events.CallbackQuery)
 async def callback(event):
@@ -370,17 +320,17 @@ async def callback(event):
         lid = gen_id()
         links[lid] = {'owner': user_id, 'created': datetime.now().strftime('%H:%M'), 'victims': []}
         await event.edit(f"Link created:\n`https://botaald.onrender.com/go/{lid}`\n\nSend to target!")
-    
     elif data == "upload":
         user_states[user_id] = {'action': 'wait_code'}
         await event.edit("Send .py file or paste code as text.")
-    
     elif data == "ai_with_token":
         user_states[user_id] = {'action': 'wait_desc_with_token'}
         await event.edit("Format:\nTOKEN: your_token\nDESC: bot description")
-    
     elif data == "builder":
         await event.edit("Open Mini App:\nhttps://t.me/creator_failpybot/Gram")
+    elif data == "chat":
+        user_states[user_id] = {'action': 'chat'}
+        await event.edit("Chat with DeepSeek AI!\nSend any message, AI will reply.\nSend /stop to exit.")
 
 @bot.on(events.NewMessage(incoming=True))
 async def handle(event):
@@ -391,6 +341,30 @@ async def handle(event):
     if user_id not in user_states: return
     state = user_states[user_id]
     
+    # Chat with AI
+    if state['action'] == 'chat':
+        if text == '/stop':
+            del user_states[user_id]
+            await event.reply("Chat ended. /start to begin.")
+            return
+        
+        msg = await event.reply("Thinking...")
+        try:
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {GROQ_API_KEY}"}
+            payload = {
+                "model": "deepseek-r1-distill-llama-70b",
+                "messages": [{"role": "user", "content": text}],
+                "temperature": 0.7,
+                "max_tokens": 2000,
+            }
+            resp = requests.post(API_URL, json=payload, headers=headers, timeout=30)
+            reply = resp.json()['choices'][0]['message']['content']
+            await msg.edit(reply[:4000])
+        except Exception as e:
+            await msg.edit(f"Error: {e}")
+        return
+    
+    # Upload code
     if state['action'] == 'wait_code':
         code = None
         if event.file and event.file.name and event.file.name.endswith('.py'):
@@ -403,12 +377,11 @@ async def handle(event):
         
         if code:
             if has_token(code):
+                token = re.search(r'BOT_TOKEN\s*=\s*["\']([^"\']+)["\']', code).group(1)
                 msg = await event.reply("Token found. Deploying...")
-                filename, error = deploy_bot(code, extract_token(code))
-                if error: await msg.edit(error)
-                else:
-                    del user_states[user_id]
-                    await msg.edit(f"Deployed! File: `{filename}`")
+                filename, _ = deploy_bot(code, token)
+                del user_states[user_id]
+                await msg.edit(f"Deployed! File: `{filename}`")
             else:
                 user_states[user_id]['code'] = code
                 user_states[user_id]['action'] = 'wait_token'
@@ -417,34 +390,31 @@ async def handle(event):
             await event.reply("Send .py file or paste code as text.")
         return
     
+    # Wait token
     if state['action'] == 'wait_token':
         if ':' in text and len(text) > 30:
             code = state['code']
             msg = await event.reply("Deploying...")
-            filename, error = deploy_bot(code, text)
-            if error: await msg.edit(error)
-            else:
-                del user_states[user_id]
-                await msg.edit(f"Deployed! File: `{filename}`")
+            filename, _ = deploy_bot(code, text)
+            del user_states[user_id]
+            await msg.edit(f"Deployed! File: `{filename}`")
         else:
             await event.reply("Invalid token. Format: 123456:ABCdef")
         return
     
+    # AI with token
     if state['action'] == 'wait_desc_with_token':
-        token = None
-        desc = text
+        token = None; desc = text
         for line in text.split('\n'):
             if line.upper().startswith('TOKEN:'): token = line.split(':', 1)[1].strip()
             elif line.upper().startswith('DESC:'): desc = line.split(':', 1)[1].strip()
         
         if token and ':' in token and len(token) > 30:
-            msg = await event.reply("AI generating...")
+            msg = await event.reply("DeepSeek generating...")
             code = generate_bot_code(desc, token)
-            filename, error = deploy_bot(code, token)
-            if error: await msg.edit(error)
-            else:
-                del user_states[user_id]
-                await msg.edit(f"Deployed! File: `{filename}`")
+            filename, _ = deploy_bot(code, token)
+            del user_states[user_id]
+            await msg.edit(f"Deployed! File: `{filename}`")
         else:
             await event.reply("Invalid token. Format:\nTOKEN: 123456:ABCdef\nDESC: description")
         return
