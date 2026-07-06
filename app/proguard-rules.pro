@@ -1,0 +1,5 @@
+-keep class com.botaald.app.** { *; }
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
+-keep public class * extends android.app.Activity
+-keep public class * extends android.app.Service
